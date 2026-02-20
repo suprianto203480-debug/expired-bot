@@ -8,6 +8,9 @@ from telegram.ext import (
     JobQueue
 )
 from telegram.constants import ParseMode
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
+import io
 
 # ===================== KONFIGURASI =====================
 TOKEN = "8590161595:AAFQ2dSjsi_dKr61lvicnGkE2EAwMsusSCw"
@@ -15,6 +18,26 @@ DATA_FILE = "produk_database.json"
 
 # States untuk ConversationHandler
 NAMA, TANGGAL, TIPE_LOKASI, PLUGIN, SHOWCASE, KATEGORI = range(6)
+
+# ===================== FUNGSI WAKTU WIB =====================
+def get_waktu_wib():
+    """Mendapatkan waktu WIB (UTC+7)"""
+    waktu_utc = datetime.utcnow()
+    waktu_wib = waktu_utc + timedelta(hours=7)
+    return waktu_wib
+
+def format_waktu_wib():
+    """Format waktu WIB untuk ditampilkan"""
+    waktu = get_waktu_wib()
+    return {
+        "full": waktu.strftime('%Y-%m-%d %H:%M:%S'),
+        "tanggal": waktu.strftime('%d/%m/%Y'),
+        "jam": waktu.strftime('%H:%M'),
+        "tanggal_lengkap": waktu.strftime('%d %B %Y'),
+        "hari": waktu.strftime('%A'),
+        "bulan": waktu.strftime('%B'),
+        "tahun": waktu.strftime('%Y')
+    }
 
 # ===================== DATABASE JSON =====================
 def load_data():
@@ -46,9 +69,11 @@ def save_user_data(user_id, user_data):
 # ===================== NOTIFIKASI OTOMATIS =====================
 async def cek_expired(context: ContextTypes.DEFAULT_TYPE):
     """Cek produk expired dan kirim notifikasi otomatis"""
-    print(f"🔔 Cek expired: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    waktu_wib = get_waktu_wib()
+    today = waktu_wib.date()
+    print(f"🔔 Cek expired: {waktu_wib.strftime('%Y-%m-%d %H:%M:%S')} WIB")
+    
     data = load_data()
-    today = datetime.now().date()
     
     for user_id_str, user_data in data.items():
         produk_list = user_data.get("produk", [])
@@ -152,6 +177,162 @@ async def cek_expired(context: ContextTypes.DEFAULT_TYPE):
         user_data["notifikasi"] = notifikasi_baru
         save_user_data(user_id_str, user_data)
 
+# ===================== FUNGSI EXPORT EXCEL =====================
+async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Export data produk ke file Excel"""
+    user_id = update.effective_user.id
+    user_data = get_user_data(user_id)
+    produk_list = user_data.get("produk", [])
+    
+    if not produk_list:
+        await update.message.reply_text(
+            "📭 *Tidak ada data untuk diexport*",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    # Kirim pesan proses
+    waiting_msg = await update.message.reply_text(
+        "⏳ *Sedang memproses export Excel...*",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    try:
+        # Buat file Excel
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Produk Expired"
+        
+        # Header
+        headers = [
+            "No", 
+            "Nama Produk", 
+            "Tanggal Expired", 
+            "Sisa Hari", 
+            "Status",
+            "Kategori", 
+            "Lokasi", 
+            "Tipe Lokasi", 
+            "Nomor",
+            "Jam Ditambahkan",
+            "Tanggal Ditambahkan"
+        ]
+        
+        # Style header
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="2E86AB", end_color="2E86AB", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+        
+        # Data
+        today = datetime.now().date()
+        warna_status = {
+            "aman": "A5D6A5",      # Hijau muda
+            "warning_h7": "FFE599", # Kuning
+            "warning_h3": "F9CB9C", # Oranye muda
+            "warning_h1": "F4A582", # Oranye
+            "expired_hari_ini": "E6B8B7", # Merah muda
+            "expired": "F4CCCC"     # Merah
+        }
+        
+        for row, p in enumerate(produk_list, 2):
+            expired_date = datetime.strptime(p['tanggal'], '%Y-%m-%d').date()
+            selisih = (expired_date - today).days
+            
+            # Tentukan status dan warna
+            if selisih < 0:
+                status = f"EXPIRED ({abs(selisih)} hari)"
+                warna = warna_status["expired"]
+            elif selisih == 0:
+                status = "EXPIRED HARI INI"
+                warna = warna_status["expired_hari_ini"]
+            elif selisih == 1:
+                status = f"H-{selisih} (BESOK!)"
+                warna = warna_status["warning_h1"]
+            elif selisih <= 3:
+                status = f"H-{selisih}"
+                warna = warna_status["warning_h3"]
+            elif selisih <= 7:
+                status = f"H-{selisih}"
+                warna = warna_status["warning_h7"]
+            else:
+                status = f"AMAN ({selisih} hari)"
+                warna = warna_status["aman"]
+            
+            data = [
+                row-1,
+                p['nama'],
+                expired_date.strftime('%d/%m/%Y'),
+                selisih,
+                status,
+                p['kategori'],
+                p['lokasi_detail'],
+                p['lokasi_tipe'],
+                p['lokasi_nomor'],
+                p.get('ditambahkan_jam', '-'),
+                p.get('ditambahkan_tanggal', '-')
+            ]
+            
+            for col, value in enumerate(data, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                if col == 5:  # Kolom status
+                    cell.fill = PatternFill(start_color=warna, end_color=warna, fill_type="solid")
+                    cell.alignment = Alignment(horizontal="center")
+                elif col in [1, 4, 8, 9, 10]:
+                    cell.alignment = Alignment(horizontal="center")
+        
+        # Auto adjust column width
+        for col in range(1, len(headers)+1):
+            ws.column_dimensions[chr(64+col)].width = 18
+        
+        # Freeze pane baris pertama
+        ws.freeze_panes = 'A2'
+        
+        # Filter untuk header
+        ws.auto_filter.ref = f"A1:K{len(produk_list)+1}"
+        
+        # Save ke memory
+        excel_file = io.BytesIO()
+        wb.save(excel_file)
+        excel_file.seek(0)
+        
+        # Hapus pesan waiting
+        await waiting_msg.delete()
+        
+        # Kirim file
+        waktu = format_waktu_wib()
+        filename = f"produk_export_{waktu['tanggal'].replace('/', '')}_{waktu['jam'].replace(':', '')}.xlsx"
+        
+        await update.message.reply_document(
+            document=excel_file,
+            filename=filename,
+            caption=(
+                f"📊 *EXPORT DATA PRODUK*\n\n"
+                f"📅 Tanggal: {waktu['tanggal_lengkap']}\n"
+                f"⏰ Jam: {waktu['jam']} WIB\n"
+                f"📦 Total Produk: {len(produk_list)}\n\n"
+                f"✅ Status:\n"
+                f"• Aman: {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days > 7])}\n"
+                f"• Warning: {len([p for p in produk_list if 1 <= (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 7])}\n"
+                f"• Expired: {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 0])}"
+            ),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        print(f"Error export Excel: {e}")
+        await waiting_msg.delete()
+        await update.message.reply_text(
+            "❌ *Gagal membuat file Excel*\n"
+            f"Error: {str(e)[:100]}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
 # ===================== FUNGSI TAMBAHAN UNTUK MULAI TAMBAH =====================
 async def tambah_mulai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mulai proses tambah produk via command"""
@@ -182,16 +363,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🗑 HAPUS PRODUK", callback_data="hapus_produk")],
         [InlineKeyboardButton("📊 STATISTIK", callback_data="statistik")],
         [InlineKeyboardButton("📍 CEK LOKASI", callback_data="cek_lokasi")],
+        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")],
         [InlineKeyboardButton("❓ BANTUAN", callback_data="bantuan")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    waktu = format_waktu_wib()
     await update.message.reply_text(
-        "🏪 *MONITORING EXPIRED PRO* 🏪\n\n"
-        "Sistem manajemen expired dengan *lokasi bertingkat*:\n"
-        "• 📍 Plug-in 1-4 (Rak penyimpanan)\n"
-        "• 📍 Showcase 1-4 (Etalage display)\n\n"
-        "Pilih menu di bawah:",
+        f"🏪 *MONITORING EXPIRED PRO* 🏪\n\n"
+        f"🕒 *Waktu:* {waktu['jam']} WIB - {waktu['tanggal']}\n\n"
+        f"Sistem manajemen expired dengan *lokasi bertingkat*:\n"
+        f"• 📍 Plug-in 1-4 (Rak penyimpanan)\n"
+        f"• 📍 Showcase 1-4 (Etalage display)\n\n"
+        f"Pilih menu di bawah:",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
@@ -204,13 +388,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Menu utama
     if query.data == "tambah_produk":
-        # Mulai conversation untuk tambah produk
         await query.edit_message_text(
             "📦 *TAMBAH PRODUK BARU*\n\n"
             "Silakan masukkan *nama produk*:",
             parse_mode=ParseMode.MARKDOWN
         )
-        return NAMA  # Penting! return state untuk conversation
+        return NAMA
     
     elif query.data == "lihat_produk":
         await list_produk(update, context)
@@ -224,6 +407,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "cek_lokasi":
         await cek_lokasi(update, context)
     
+    elif query.data == "export_excel":
+        await export_excel_callback(update, context)
+    
     elif query.data == "bantuan":
         await bantuan(update, context)
     
@@ -235,12 +421,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🗑 HAPUS PRODUK", callback_data="hapus_produk")],
             [InlineKeyboardButton("📊 STATISTIK", callback_data="statistik")],
             [InlineKeyboardButton("📍 CEK LOKASI", callback_data="cek_lokasi")],
+            [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")],
             [InlineKeyboardButton("❓ BANTUAN", callback_data="bantuan")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        waktu = format_waktu_wib()
         await query.edit_message_text(
-            "🏪 *MONITORING EXPIRED PRO* 🏪\n\n"
-            "Pilih menu di bawah:",
+            f"🏪 *MONITORING EXPIRED PRO* 🏪\n\n"
+            f"🕒 *Waktu:* {waktu['jam']} WIB - {waktu['tanggal']}\n\n"
+            f"Pilih menu di bawah:",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
@@ -377,6 +567,170 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
+# ===================== EXPORT EXCEL VIA CALLBACK =====================
+async def export_excel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Export Excel via callback"""
+    query = update.callback_query
+    
+    user_id = update.effective_user.id
+    user_data = get_user_data(user_id)
+    produk_list = user_data.get("produk", [])
+    
+    if not produk_list:
+        await query.edit_message_text(
+            "📭 *Tidak ada data untuk diexport*",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        # Tombol kembali
+        keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text("Pilih menu:", reply_markup=reply_markup)
+        return
+    
+    await query.edit_message_text(
+        "⏳ *Sedang memproses export Excel...*",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    try:
+        # Buat file Excel
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Produk Expired"
+        
+        # Header
+        headers = [
+            "No", 
+            "Nama Produk", 
+            "Tanggal Expired", 
+            "Sisa Hari", 
+            "Status",
+            "Kategori", 
+            "Lokasi", 
+            "Tipe Lokasi", 
+            "Nomor",
+            "Jam Ditambahkan",
+            "Tanggal Ditambahkan"
+        ]
+        
+        # Style header
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="2E86AB", end_color="2E86AB", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+        
+        # Data
+        today = datetime.now().date()
+        warna_status = {
+            "aman": "A5D6A5",      # Hijau muda
+            "warning_h7": "FFE599", # Kuning
+            "warning_h3": "F9CB9C", # Oranye muda
+            "warning_h1": "F4A582", # Oranye
+            "expired_hari_ini": "E6B8B7", # Merah muda
+            "expired": "F4CCCC"     # Merah
+        }
+        
+        for row, p in enumerate(produk_list, 2):
+            expired_date = datetime.strptime(p['tanggal'], '%Y-%m-%d').date()
+            selisih = (expired_date - today).days
+            
+            # Tentukan status dan warna
+            if selisih < 0:
+                status = f"EXPIRED ({abs(selisih)} hari)"
+                warna = warna_status["expired"]
+            elif selisih == 0:
+                status = "EXPIRED HARI INI"
+                warna = warna_status["expired_hari_ini"]
+            elif selisih == 1:
+                status = f"H-{selisih} (BESOK!)"
+                warna = warna_status["warning_h1"]
+            elif selisih <= 3:
+                status = f"H-{selisih}"
+                warna = warna_status["warning_h3"]
+            elif selisih <= 7:
+                status = f"H-{selisih}"
+                warna = warna_status["warning_h7"]
+            else:
+                status = f"AMAN ({selisih} hari)"
+                warna = warna_status["aman"]
+            
+            data = [
+                row-1,
+                p['nama'],
+                expired_date.strftime('%d/%m/%Y'),
+                selisih,
+                status,
+                p['kategori'],
+                p['lokasi_detail'],
+                p['lokasi_tipe'],
+                p['lokasi_nomor'],
+                p.get('ditambahkan_jam', '-'),
+                p.get('ditambahkan_tanggal', '-')
+            ]
+            
+            for col, value in enumerate(data, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                if col == 5:  # Kolom status
+                    cell.fill = PatternFill(start_color=warna, end_color=warna, fill_type="solid")
+                    cell.alignment = Alignment(horizontal="center")
+                elif col in [1, 4, 8, 9, 10]:
+                    cell.alignment = Alignment(horizontal="center")
+        
+        # Auto adjust column width
+        for col in range(1, len(headers)+1):
+            ws.column_dimensions[chr(64+col)].width = 18
+        
+        # Freeze pane
+        ws.freeze_panes = 'A2'
+        
+        # Filter
+        ws.auto_filter.ref = f"A1:K{len(produk_list)+1}"
+        
+        # Save ke memory
+        excel_file = io.BytesIO()
+        wb.save(excel_file)
+        excel_file.seek(0)
+        
+        # Kirim file
+        waktu = format_waktu_wib()
+        filename = f"produk_export_{waktu['tanggal'].replace('/', '')}_{waktu['jam'].replace(':', '')}.xlsx"
+        
+        await query.message.reply_document(
+            document=excel_file,
+            filename=filename,
+            caption=(
+                f"📊 *EXPORT DATA PRODUK*\n\n"
+                f"📅 Tanggal: {waktu['tanggal_lengkap']}\n"
+                f"⏰ Jam: {waktu['jam']} WIB\n"
+                f"📦 Total Produk: {len(produk_list)}\n\n"
+                f"✅ Status:\n"
+                f"• Aman: {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days > 7])}\n"
+                f"• Warning: {len([p for p in produk_list if 1 <= (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 7])}\n"
+                f"• Expired: {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 0])}"
+            ),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        # Hapus pesan "processing"
+        await query.delete_message()
+        
+    except Exception as e:
+        print(f"Error export Excel: {e}")
+        await query.edit_message_text(
+            f"❌ *Gagal membuat file Excel*\nError: {str(e)[:100]}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    # Tombol kembali
+    keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.message.reply_text("Pilih menu:", reply_markup=reply_markup)
+
 # ===================== TAMBAH PRODUK (MESSAGE HANDLER) =====================
 async def nama_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Terima nama produk"""
@@ -416,13 +770,15 @@ async def tanggal_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return TANGGAL
 
 async def simpan_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Simpan produk ke database"""
-    # Bisa dari callback atau message
+    """Simpan produk ke database dengan waktu WIB"""
     if update.callback_query:
         query = update.callback_query
         user_id = update.effective_user.id
     else:
         user_id = update.effective_user.id
+    
+    # Ambil waktu WIB
+    waktu = format_waktu_wib()
     
     produk = {
         "nama": context.user_data['nama'],
@@ -431,9 +787,10 @@ async def simpan_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "lokasi_nomor": context.user_data['lokasi_nomor'],
         "lokasi_detail": context.user_data['lokasi_detail'],
         "kategori": context.user_data['kategori'],
-        "ditambahkan": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        "ditambahkan_tanggal": datetime.now().strftime('%d/%m/%Y'),
-        "ditambahkan_jam": datetime.now().strftime('%H:%M')
+        "ditambahkan": waktu['full'],
+        "ditambahkan_tanggal": waktu['tanggal'],
+        "ditambahkan_jam": waktu['jam'],
+        "ditambahkan_wib": True
     }
     
     # Simpan ke database
@@ -461,7 +818,7 @@ async def simpan_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📊 *Status:* {status}\n"
         f"🏷 *Kategori:* {produk['kategori']}\n"
         f"📍 *Lokasi:* {produk['lokasi_detail']}\n"
-        f"⏰ *Ditambahkan:* {produk['ditambahkan_jam']} - {produk['ditambahkan_tanggal']}\n\n"
+        f"⏰ *Ditambahkan:* {waktu['jam']} WIB - {waktu['tanggal']}\n\n"
         f"🔔 Notifikasi otomatis aktif: H-7, H-3, H-1"
     )
     
@@ -473,7 +830,8 @@ async def simpan_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Tombol untuk aksi selanjutnya
     keyboard = [
         [InlineKeyboardButton("📦 TAMBAH LAGI", callback_data="tambah_produk")],
-        [InlineKeyboardButton("🏠 MENU UTAMA", callback_data="kembali_ke_menu")]
+        [InlineKeyboardButton("🏠 MENU UTAMA", callback_data="kembali_ke_menu")],
+        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -535,13 +893,16 @@ async def list_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pesan += f"   📅 {expired_date.strftime('%d/%m/%Y')} ({selisih} hari)\n"
             pesan += f"   🏷 {p['kategori']}\n"
             pesan += f"   📍 {p['lokasi_detail']}\n"
-            pesan += f"   ⏰ {p.get('ditambahkan_jam', '-')}\n\n"
+            pesan += f"   ⏰ {p.get('ditambahkan_jam', '-')} WIB\n\n"
         
         pesan += f"📊 *Total: {len(produk_list)} produk*"
         await reply_func(pesan, parse_mode=ParseMode.MARKDOWN)
     
     # Tombol kembali
-    keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+    keyboard = [
+        [InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")],
+        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.callback_query:
@@ -595,7 +956,9 @@ async def statistik(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif p['lokasi_detail'].startswith('Showcase'):
             lokasi_showcase[p['lokasi_detail']] += 1
     
-    pesan = "📊 *STATISTIK PRODUK*\n\n"
+    waktu = format_waktu_wib()
+    pesan = f"📊 *STATISTIK PRODUK*\n"
+    pesan += f"🕒 *{waktu['jam']} WIB - {waktu['tanggal']}*\n\n"
     pesan += "*STATUS EXPIRED:*\n"
     pesan += f"✅ Aman (>7 hari): {aman}\n"
     pesan += f"⚡ H-7 s/d H-4: {warning_h7}\n"
@@ -620,7 +983,10 @@ async def statistik(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply_func(pesan, parse_mode=ParseMode.MARKDOWN)
     
     # Tombol kembali
-    keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+    keyboard = [
+        [InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")],
+        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.callback_query:
@@ -668,7 +1034,10 @@ async def cek_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply_func(pesan, parse_mode=ParseMode.MARKDOWN)
     
     # Tombol kembali
-    keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+    keyboard = [
+        [InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")],
+        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.callback_query:
@@ -763,6 +1132,7 @@ async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/hapus - Hapus produk\n"
         "/stats - Statistik lengkap\n"
         "/lokasi - Cek per lokasi\n"
+        "/export - Export ke Excel\n"
         "/bantuan - Bantuan ini\n\n"
         
         "*LOKASI BERTINGKAT:*\n"
@@ -782,7 +1152,10 @@ async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     # Tombol kembali
-    keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+    keyboard = [
+        [InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")],
+        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.callback_query:
@@ -792,10 +1165,19 @@ async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===================== MAIN =====================
 def main():
-    print("="*50)
-    print("🏪 BOT EXPIRED PRO - TAMBAH PRODUK FIX")
-    print("="*50)
+    print("="*60)
+    print("🏪 BOT EXPIRED PRO - DENGAN EXPORT EXCEL")
+    print("="*60)
     print(f"🤖 Token: {TOKEN[:15]}...")
+    
+    # Cek apakah openpyxl terinstall
+    try:
+        import openpyxl
+        print("📊 Library openpyxl: TERINSTAL")
+    except ImportError:
+        print("❌ Library openpyxl TIDAK TERINSTAL!")
+        print("   Jalankan: pip install openpyxl")
+        return
     
     app = ApplicationBuilder().token(TOKEN).build()
     
@@ -803,7 +1185,7 @@ def main():
     job_queue = app.job_queue
     if job_queue:
         job_queue.run_repeating(cek_expired, interval=21600, first=10)
-        print("⏰ Notifikasi otomatis: AKTIF")
+        print("⏰ Notifikasi otomatis: AKTIF (cek setiap 6 jam)")
     
     # Conversation handler untuk TAMBAH produk
     tambah_conv = ConversationHandler(
@@ -830,6 +1212,7 @@ def main():
     app.add_handler(CommandHandler('list', list_produk))
     app.add_handler(CommandHandler('stats', statistik))
     app.add_handler(CommandHandler('lokasi', cek_lokasi))
+    app.add_handler(CommandHandler('export', export_excel))
     app.add_handler(CommandHandler('bantuan', bantuan))
     app.add_handler(tambah_conv)
     
@@ -838,7 +1221,7 @@ def main():
     
     print("✅ BOT SIAP! Menjalankan polling...")
     print("📱 Cek Telegram Anda sekarang!")
-    print("="*50)
+    print("="*60)
     
     app.run_polling()
 
