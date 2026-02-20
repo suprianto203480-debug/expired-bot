@@ -8,8 +8,7 @@ from telegram.ext import (
     JobQueue
 )
 from telegram.constants import ParseMode
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
+import csv
 import io
 
 # ===================== KONFIGURASI =====================
@@ -65,6 +64,226 @@ def save_user_data(user_id, user_data):
     data = load_data()
     data[str(user_id)] = user_data
     save_data(data)
+
+# ===================== FUNGSI EXPORT CSV =====================
+async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Export data produk ke file CSV (tanpa openpyxl)"""
+    user_id = update.effective_user.id
+    user_data = get_user_data(user_id)
+    produk_list = user_data.get("produk", [])
+    
+    if not produk_list:
+        await update.message.reply_text(
+            "📭 *Tidak ada data untuk diexport*",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    # Kirim pesan proses
+    waiting_msg = await update.message.reply_text(
+        "⏳ *Sedang memproses export data...*",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    try:
+        # Buat file CSV dalam memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Header CSV
+        writer.writerow([
+            "No", 
+            "Nama Produk", 
+            "Tanggal Expired", 
+            "Sisa Hari", 
+            "Status",
+            "Kategori", 
+            "Lokasi", 
+            "Tipe Lokasi", 
+            "Nomor",
+            "Jam Ditambahkan",
+            "Tanggal Ditambahkan"
+        ])
+        
+        # Data
+        today = datetime.now().date()
+        
+        for i, p in enumerate(produk_list, 1):
+            expired_date = datetime.strptime(p['tanggal'], '%Y-%m-%d').date()
+            selisih = (expired_date - today).days
+            
+            # Tentukan status
+            if selisih < 0:
+                status = f"EXPIRED ({abs(selisih)} hari)"
+            elif selisih == 0:
+                status = "EXPIRED HARI INI"
+            elif selisih == 1:
+                status = f"H-{selisih} (BESOK!)"
+            elif selisih <= 3:
+                status = f"H-{selisih}"
+            elif selisih <= 7:
+                status = f"H-{selisih}"
+            else:
+                status = f"AMAN ({selisih} hari)"
+            
+            writer.writerow([
+                i,
+                p['nama'],
+                expired_date.strftime('%d/%m/%Y'),
+                selisih,
+                status,
+                p['kategori'],
+                p['lokasi_detail'],
+                p['lokasi_tipe'],
+                p['lokasi_nomor'],
+                p.get('ditambahkan_jam', '-'),
+                p.get('ditambahkan_tanggal', '-')
+            ])
+        
+        # Dapatkan string CSV
+        csv_data = output.getvalue()
+        output.close()
+        
+        # Convert ke bytes untuk dikirim
+        csv_bytes = io.BytesIO()
+        csv_bytes.write(csv_data.encode('utf-8'))
+        csv_bytes.seek(0)
+        
+        # Hapus pesan waiting
+        await waiting_msg.delete()
+        
+        # Kirim file
+        waktu = format_waktu_wib()
+        filename = f"produk_export_{waktu['tanggal'].replace('/', '')}_{waktu['jam'].replace(':', '')}.csv"
+        
+        await update.message.reply_document(
+            document=csv_bytes,
+            filename=filename,
+            caption=(
+                f"📊 *EXPORT DATA PRODUK (CSV)*\n\n"
+                f"📅 Tanggal: {waktu['tanggal_lengkap']}\n"
+                f"⏰ Jam: {waktu['jam']} WIB\n"
+                f"📦 Total Produk: {len(produk_list)}\n\n"
+                f"✅ Status:\n"
+                f"• Aman: {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days > 7])}\n"
+                f"• Warning: {len([p for p in produk_list if 1 <= (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 7])}\n"
+                f"• Expired: {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 0])}"
+            ),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        print(f"Error export CSV: {e}")
+        await waiting_msg.delete()
+        await update.message.reply_text(
+            f"❌ *Gagal membuat file CSV*\nError: {str(e)[:100]}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+async def export_txt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Export data produk ke file TXT"""
+    user_id = update.effective_user.id
+    user_data = get_user_data(user_id)
+    produk_list = user_data.get("produk", [])
+    
+    if not produk_list:
+        await update.message.reply_text(
+            "📭 *Tidak ada data untuk diexport*",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    # Kirim pesan proses
+    waiting_msg = await update.message.reply_text(
+        "⏳ *Sedang memproses export data...*",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    try:
+        # Buat file TXT
+        today = datetime.now().date()
+        waktu = format_waktu_wib()
+        
+        txt_content = f"""
+========================================
+      EXPORT DATA PRODUK EXPIRED
+========================================
+Tanggal Export : {waktu['tanggal_lengkap']}
+Jam Export     : {waktu['jam']} WIB
+Total Produk   : {len(produk_list)}
+========================================
+
+DAFTAR PRODUK:
+"""
+        
+        for i, p in enumerate(produk_list, 1):
+            expired_date = datetime.strptime(p['tanggal'], '%Y-%m-%d').date()
+            selisih = (expired_date - today).days
+            
+            # Tentukan status
+            if selisih < 0:
+                status = f"EXPIRED ({abs(selisih)} hari)"
+            elif selisih == 0:
+                status = "EXPIRED HARI INI"
+            elif selisih == 1:
+                status = f"H-{selisih} (BESOK!)"
+            elif selisih <= 3:
+                status = f"H-{selisih}"
+            elif selisih <= 7:
+                status = f"H-{selisih}"
+            else:
+                status = f"AMAN ({selisih} hari)"
+            
+            txt_content += f"""
+{i}. {p['nama']}
+   Expired    : {expired_date.strftime('%d %B %Y')}
+   Sisa Hari  : {selisih}
+   Status     : {status}
+   Kategori   : {p['kategori']}
+   Lokasi     : {p['lokasi_detail']}
+   Ditambahkan: {p.get('ditambahkan_jam', '-')} WIB - {p.get('ditambahkan_tanggal', '-')}
+{'-'*40}
+"""
+        
+        txt_content += f"""
+========================================
+STATISTIK:
+- Aman (>7 hari)  : {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days > 7])}
+- Warning (H-7 s/d H-1) : {len([p for p in produk_list if 1 <= (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 7])}
+- Expired         : {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 0])}
+========================================
+"""
+        
+        # Convert ke bytes
+        txt_bytes = io.BytesIO()
+        txt_bytes.write(txt_content.encode('utf-8'))
+        txt_bytes.seek(0)
+        
+        # Hapus pesan waiting
+        await waiting_msg.delete()
+        
+        # Kirim file
+        filename = f"produk_export_{waktu['tanggal'].replace('/', '')}_{waktu['jam'].replace(':', '')}.txt"
+        
+        await update.message.reply_document(
+            document=txt_bytes,
+            filename=filename,
+            caption=(
+                f"📄 *EXPORT DATA PRODUK (TXT)*\n\n"
+                f"📅 Tanggal: {waktu['tanggal_lengkap']}\n"
+                f"⏰ Jam: {waktu['jam']} WIB\n"
+                f"📦 Total Produk: {len(produk_list)}"
+            ),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        print(f"Error export TXT: {e}")
+        await waiting_msg.delete()
+        await update.message.reply_text(
+            f"❌ *Gagal membuat file TXT*\nError: {str(e)[:100]}",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
 # ===================== NOTIFIKASI OTOMATIS =====================
 async def cek_expired(context: ContextTypes.DEFAULT_TYPE):
@@ -177,162 +396,6 @@ async def cek_expired(context: ContextTypes.DEFAULT_TYPE):
         user_data["notifikasi"] = notifikasi_baru
         save_user_data(user_id_str, user_data)
 
-# ===================== FUNGSI EXPORT EXCEL =====================
-async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Export data produk ke file Excel"""
-    user_id = update.effective_user.id
-    user_data = get_user_data(user_id)
-    produk_list = user_data.get("produk", [])
-    
-    if not produk_list:
-        await update.message.reply_text(
-            "📭 *Tidak ada data untuk diexport*",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-    
-    # Kirim pesan proses
-    waiting_msg = await update.message.reply_text(
-        "⏳ *Sedang memproses export Excel...*",
-        parse_mode=ParseMode.MARKDOWN
-    )
-    
-    try:
-        # Buat file Excel
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Produk Expired"
-        
-        # Header
-        headers = [
-            "No", 
-            "Nama Produk", 
-            "Tanggal Expired", 
-            "Sisa Hari", 
-            "Status",
-            "Kategori", 
-            "Lokasi", 
-            "Tipe Lokasi", 
-            "Nomor",
-            "Jam Ditambahkan",
-            "Tanggal Ditambahkan"
-        ]
-        
-        # Style header
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="2E86AB", end_color="2E86AB", fill_type="solid")
-        header_alignment = Alignment(horizontal="center", vertical="center")
-        
-        for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = header_alignment
-        
-        # Data
-        today = datetime.now().date()
-        warna_status = {
-            "aman": "A5D6A5",      # Hijau muda
-            "warning_h7": "FFE599", # Kuning
-            "warning_h3": "F9CB9C", # Oranye muda
-            "warning_h1": "F4A582", # Oranye
-            "expired_hari_ini": "E6B8B7", # Merah muda
-            "expired": "F4CCCC"     # Merah
-        }
-        
-        for row, p in enumerate(produk_list, 2):
-            expired_date = datetime.strptime(p['tanggal'], '%Y-%m-%d').date()
-            selisih = (expired_date - today).days
-            
-            # Tentukan status dan warna
-            if selisih < 0:
-                status = f"EXPIRED ({abs(selisih)} hari)"
-                warna = warna_status["expired"]
-            elif selisih == 0:
-                status = "EXPIRED HARI INI"
-                warna = warna_status["expired_hari_ini"]
-            elif selisih == 1:
-                status = f"H-{selisih} (BESOK!)"
-                warna = warna_status["warning_h1"]
-            elif selisih <= 3:
-                status = f"H-{selisih}"
-                warna = warna_status["warning_h3"]
-            elif selisih <= 7:
-                status = f"H-{selisih}"
-                warna = warna_status["warning_h7"]
-            else:
-                status = f"AMAN ({selisih} hari)"
-                warna = warna_status["aman"]
-            
-            data = [
-                row-1,
-                p['nama'],
-                expired_date.strftime('%d/%m/%Y'),
-                selisih,
-                status,
-                p['kategori'],
-                p['lokasi_detail'],
-                p['lokasi_tipe'],
-                p['lokasi_nomor'],
-                p.get('ditambahkan_jam', '-'),
-                p.get('ditambahkan_tanggal', '-')
-            ]
-            
-            for col, value in enumerate(data, 1):
-                cell = ws.cell(row=row, column=col, value=value)
-                if col == 5:  # Kolom status
-                    cell.fill = PatternFill(start_color=warna, end_color=warna, fill_type="solid")
-                    cell.alignment = Alignment(horizontal="center")
-                elif col in [1, 4, 8, 9, 10]:
-                    cell.alignment = Alignment(horizontal="center")
-        
-        # Auto adjust column width
-        for col in range(1, len(headers)+1):
-            ws.column_dimensions[chr(64+col)].width = 18
-        
-        # Freeze pane baris pertama
-        ws.freeze_panes = 'A2'
-        
-        # Filter untuk header
-        ws.auto_filter.ref = f"A1:K{len(produk_list)+1}"
-        
-        # Save ke memory
-        excel_file = io.BytesIO()
-        wb.save(excel_file)
-        excel_file.seek(0)
-        
-        # Hapus pesan waiting
-        await waiting_msg.delete()
-        
-        # Kirim file
-        waktu = format_waktu_wib()
-        filename = f"produk_export_{waktu['tanggal'].replace('/', '')}_{waktu['jam'].replace(':', '')}.xlsx"
-        
-        await update.message.reply_document(
-            document=excel_file,
-            filename=filename,
-            caption=(
-                f"📊 *EXPORT DATA PRODUK*\n\n"
-                f"📅 Tanggal: {waktu['tanggal_lengkap']}\n"
-                f"⏰ Jam: {waktu['jam']} WIB\n"
-                f"📦 Total Produk: {len(produk_list)}\n\n"
-                f"✅ Status:\n"
-                f"• Aman: {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days > 7])}\n"
-                f"• Warning: {len([p for p in produk_list if 1 <= (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 7])}\n"
-                f"• Expired: {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 0])}"
-            ),
-            parse_mode=ParseMode.MARKDOWN
-        )
-        
-    except Exception as e:
-        print(f"Error export Excel: {e}")
-        await waiting_msg.delete()
-        await update.message.reply_text(
-            "❌ *Gagal membuat file Excel*\n"
-            f"Error: {str(e)[:100]}",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
 # ===================== FUNGSI TAMBAHAN UNTUK MULAI TAMBAH =====================
 async def tambah_mulai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mulai proses tambah produk via command"""
@@ -363,7 +426,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🗑 HAPUS PRODUK", callback_data="hapus_produk")],
         [InlineKeyboardButton("📊 STATISTIK", callback_data="statistik")],
         [InlineKeyboardButton("📍 CEK LOKASI", callback_data="cek_lokasi")],
-        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")],
+        [InlineKeyboardButton("📄 EXPORT CSV", callback_data="export_csv")],
+        [InlineKeyboardButton("📝 EXPORT TXT", callback_data="export_txt")],
         [InlineKeyboardButton("❓ BANTUAN", callback_data="bantuan")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -407,8 +471,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "cek_lokasi":
         await cek_lokasi(update, context)
     
-    elif query.data == "export_excel":
-        await export_excel_callback(update, context)
+    elif query.data == "export_csv":
+        await export_csv_callback(update, context)
+    
+    elif query.data == "export_txt":
+        await export_txt_callback(update, context)
     
     elif query.data == "bantuan":
         await bantuan(update, context)
@@ -421,7 +488,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🗑 HAPUS PRODUK", callback_data="hapus_produk")],
             [InlineKeyboardButton("📊 STATISTIK", callback_data="statistik")],
             [InlineKeyboardButton("📍 CEK LOKASI", callback_data="cek_lokasi")],
-            [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")],
+            [InlineKeyboardButton("📄 EXPORT CSV", callback_data="export_csv")],
+            [InlineKeyboardButton("📝 EXPORT TXT", callback_data="export_txt")],
             [InlineKeyboardButton("❓ BANTUAN", callback_data="bantuan")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -567,9 +635,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
-# ===================== EXPORT EXCEL VIA CALLBACK =====================
-async def export_excel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Export Excel via callback"""
+# ===================== EXPORT VIA CALLBACK =====================
+async def export_csv_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Export CSV via callback"""
     query = update.callback_query
     
     user_id = update.effective_user.id
@@ -588,145 +656,167 @@ async def export_excel_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     await query.edit_message_text(
-        "⏳ *Sedang memproses export Excel...*",
+        "⏳ *Sedang memproses export CSV...*",
         parse_mode=ParseMode.MARKDOWN
     )
     
     try:
-        # Buat file Excel
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Produk Expired"
+        # Buat file CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
         
         # Header
-        headers = [
-            "No", 
-            "Nama Produk", 
-            "Tanggal Expired", 
-            "Sisa Hari", 
-            "Status",
-            "Kategori", 
-            "Lokasi", 
-            "Tipe Lokasi", 
-            "Nomor",
-            "Jam Ditambahkan",
-            "Tanggal Ditambahkan"
-        ]
-        
-        # Style header
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="2E86AB", end_color="2E86AB", fill_type="solid")
-        header_alignment = Alignment(horizontal="center", vertical="center")
-        
-        for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = header_alignment
+        writer.writerow([
+            "No", "Nama Produk", "Tanggal Expired", "Sisa Hari", "Status",
+            "Kategori", "Lokasi", "Tipe Lokasi", "Nomor",
+            "Jam Ditambahkan", "Tanggal Ditambahkan"
+        ])
         
         # Data
         today = datetime.now().date()
-        warna_status = {
-            "aman": "A5D6A5",      # Hijau muda
-            "warning_h7": "FFE599", # Kuning
-            "warning_h3": "F9CB9C", # Oranye muda
-            "warning_h1": "F4A582", # Oranye
-            "expired_hari_ini": "E6B8B7", # Merah muda
-            "expired": "F4CCCC"     # Merah
-        }
-        
-        for row, p in enumerate(produk_list, 2):
+        for i, p in enumerate(produk_list, 1):
             expired_date = datetime.strptime(p['tanggal'], '%Y-%m-%d').date()
             selisih = (expired_date - today).days
             
-            # Tentukan status dan warna
             if selisih < 0:
                 status = f"EXPIRED ({abs(selisih)} hari)"
-                warna = warna_status["expired"]
             elif selisih == 0:
                 status = "EXPIRED HARI INI"
-                warna = warna_status["expired_hari_ini"]
             elif selisih == 1:
                 status = f"H-{selisih} (BESOK!)"
-                warna = warna_status["warning_h1"]
             elif selisih <= 3:
                 status = f"H-{selisih}"
-                warna = warna_status["warning_h3"]
             elif selisih <= 7:
                 status = f"H-{selisih}"
-                warna = warna_status["warning_h7"]
             else:
                 status = f"AMAN ({selisih} hari)"
-                warna = warna_status["aman"]
             
-            data = [
-                row-1,
-                p['nama'],
-                expired_date.strftime('%d/%m/%Y'),
-                selisih,
-                status,
-                p['kategori'],
-                p['lokasi_detail'],
-                p['lokasi_tipe'],
-                p['lokasi_nomor'],
-                p.get('ditambahkan_jam', '-'),
-                p.get('ditambahkan_tanggal', '-')
-            ]
-            
-            for col, value in enumerate(data, 1):
-                cell = ws.cell(row=row, column=col, value=value)
-                if col == 5:  # Kolom status
-                    cell.fill = PatternFill(start_color=warna, end_color=warna, fill_type="solid")
-                    cell.alignment = Alignment(horizontal="center")
-                elif col in [1, 4, 8, 9, 10]:
-                    cell.alignment = Alignment(horizontal="center")
+            writer.writerow([
+                i, p['nama'], expired_date.strftime('%d/%m/%Y'), selisih, status,
+                p['kategori'], p['lokasi_detail'], p['lokasi_tipe'], p['lokasi_nomor'],
+                p.get('ditambahkan_jam', '-'), p.get('ditambahkan_tanggal', '-')
+            ])
         
-        # Auto adjust column width
-        for col in range(1, len(headers)+1):
-            ws.column_dimensions[chr(64+col)].width = 18
+        csv_data = output.getvalue()
+        output.close()
         
-        # Freeze pane
-        ws.freeze_panes = 'A2'
+        csv_bytes = io.BytesIO()
+        csv_bytes.write(csv_data.encode('utf-8'))
+        csv_bytes.seek(0)
         
-        # Filter
-        ws.auto_filter.ref = f"A1:K{len(produk_list)+1}"
-        
-        # Save ke memory
-        excel_file = io.BytesIO()
-        wb.save(excel_file)
-        excel_file.seek(0)
-        
-        # Kirim file
         waktu = format_waktu_wib()
-        filename = f"produk_export_{waktu['tanggal'].replace('/', '')}_{waktu['jam'].replace(':', '')}.xlsx"
+        filename = f"produk_export_{waktu['tanggal'].replace('/', '')}_{waktu['jam'].replace(':', '')}.csv"
         
         await query.message.reply_document(
-            document=excel_file,
+            document=csv_bytes,
             filename=filename,
-            caption=(
-                f"📊 *EXPORT DATA PRODUK*\n\n"
-                f"📅 Tanggal: {waktu['tanggal_lengkap']}\n"
-                f"⏰ Jam: {waktu['jam']} WIB\n"
-                f"📦 Total Produk: {len(produk_list)}\n\n"
-                f"✅ Status:\n"
-                f"• Aman: {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days > 7])}\n"
-                f"• Warning: {len([p for p in produk_list if 1 <= (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 7])}\n"
-                f"• Expired: {len([p for p in produk_list if (datetime.strptime(p['tanggal'], '%Y-%m-%d').date() - today).days <= 0])}"
-            ),
+            caption=f"📊 *Export CSV*\nTotal: {len(produk_list)} produk",
             parse_mode=ParseMode.MARKDOWN
         )
         
-        # Hapus pesan "processing"
         await query.delete_message()
         
     except Exception as e:
-        print(f"Error export Excel: {e}")
+        print(f"Error export CSV: {e}")
         await query.edit_message_text(
-            f"❌ *Gagal membuat file Excel*\nError: {str(e)[:100]}",
+            f"❌ *Gagal export*\nError: {str(e)[:100]}",
             parse_mode=ParseMode.MARKDOWN
         )
     
     # Tombol kembali
+    keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.message.reply_text("Pilih menu:", reply_markup=reply_markup)
+
+async def export_txt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Export TXT via callback"""
+    query = update.callback_query
+    
+    user_id = update.effective_user.id
+    user_data = get_user_data(user_id)
+    produk_list = user_data.get("produk", [])
+    
+    if not produk_list:
+        await query.edit_message_text(
+            "📭 *Tidak ada data untuk diexport*",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text("Pilih menu:", reply_markup=reply_markup)
+        return
+    
+    await query.edit_message_text(
+        "⏳ *Sedang memproses export TXT...*",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    try:
+        today = datetime.now().date()
+        waktu = format_waktu_wib()
+        
+        txt_content = f"""
+========================================
+      EXPORT DATA PRODUK EXPIRED
+========================================
+Tanggal Export : {waktu['tanggal_lengkap']}
+Jam Export     : {waktu['jam']} WIB
+Total Produk   : {len(produk_list)}
+========================================
+
+DAFTAR PRODUK:
+"""
+        
+        for i, p in enumerate(produk_list, 1):
+            expired_date = datetime.strptime(p['tanggal'], '%Y-%m-%d').date()
+            selisih = (expired_date - today).days
+            
+            if selisih < 0:
+                status = f"EXPIRED ({abs(selisih)} hari)"
+            elif selisih == 0:
+                status = "EXPIRED HARI INI"
+            elif selisih == 1:
+                status = f"H-{selisih} (BESOK!)"
+            elif selisih <= 3:
+                status = f"H-{selisih}"
+            elif selisih <= 7:
+                status = f"H-{selisih}"
+            else:
+                status = f"AMAN ({selisih} hari)"
+            
+            txt_content += f"""
+{i}. {p['nama']}
+   Expired    : {expired_date.strftime('%d %B %Y')}
+   Sisa Hari  : {selisih}
+   Status     : {status}
+   Kategori   : {p['kategori']}
+   Lokasi     : {p['lokasi_detail']}
+   Ditambahkan: {p.get('ditambahkan_jam', '-')} WIB - {p.get('ditambahkan_tanggal', '-')}
+{'-'*40}
+"""
+        
+        txt_bytes = io.BytesIO()
+        txt_bytes.write(txt_content.encode('utf-8'))
+        txt_bytes.seek(0)
+        
+        filename = f"produk_export_{waktu['tanggal'].replace('/', '')}_{waktu['jam'].replace(':', '')}.txt"
+        
+        await query.message.reply_document(
+            document=txt_bytes,
+            filename=filename,
+            caption=f"📄 *Export TXT*\nTotal: {len(produk_list)} produk",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        await query.delete_message()
+        
+    except Exception as e:
+        print(f"Error export TXT: {e}")
+        await query.edit_message_text(
+            f"❌ *Gagal export*\nError: {str(e)[:100]}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
     keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.message.reply_text("Pilih menu:", reply_markup=reply_markup)
@@ -831,7 +921,7 @@ async def simpan_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📦 TAMBAH LAGI", callback_data="tambah_produk")],
         [InlineKeyboardButton("🏠 MENU UTAMA", callback_data="kembali_ke_menu")],
-        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")]
+        [InlineKeyboardButton("📄 EXPORT CSV", callback_data="export_csv")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -901,7 +991,7 @@ async def list_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Tombol kembali
     keyboard = [
         [InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")],
-        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")]
+        [InlineKeyboardButton("📄 EXPORT CSV", callback_data="export_csv")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -985,7 +1075,7 @@ async def statistik(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Tombol kembali
     keyboard = [
         [InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")],
-        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")]
+        [InlineKeyboardButton("📄 EXPORT CSV", callback_data="export_csv")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1036,7 +1126,7 @@ async def cek_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Tombol kembali
     keyboard = [
         [InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")],
-        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")]
+        [InlineKeyboardButton("📄 EXPORT CSV", callback_data="export_csv")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1132,7 +1222,8 @@ async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/hapus - Hapus produk\n"
         "/stats - Statistik lengkap\n"
         "/lokasi - Cek per lokasi\n"
-        "/export - Export ke Excel\n"
+        "/export_csv - Export ke CSV\n"
+        "/export_txt - Export ke TXT\n"
         "/bantuan - Bantuan ini\n\n"
         
         "*LOKASI BERTINGKAT:*\n"
@@ -1147,14 +1238,18 @@ async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         "*FORMAT TANGGAL:*\n"
         "YYYY-MM-DD\n"
-        "Contoh: 2026-12-31",
+        "Contoh: 2026-12-31\n\n"
+        
+        "*EXPORT DATA:*\n"
+        "📄 CSV : Bisa dibuka di Excel\n"
+        "📝 TXT : Format teks biasa",
         parse_mode=ParseMode.MARKDOWN
     )
     
     # Tombol kembali
     keyboard = [
         [InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")],
-        [InlineKeyboardButton("📎 EXPORT EXCEL", callback_data="export_excel")]
+        [InlineKeyboardButton("📄 EXPORT CSV", callback_data="export_csv")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1166,18 +1261,12 @@ async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===================== MAIN =====================
 def main():
     print("="*60)
-    print("🏪 BOT EXPIRED PRO - DENGAN EXPORT EXCEL")
+    print("🏪 BOT EXPIRED PRO - EXPORT CSV/TXT")
     print("="*60)
     print(f"🤖 Token: {TOKEN[:15]}...")
-    
-    # Cek apakah openpyxl terinstall
-    try:
-        import openpyxl
-        print("📊 Library openpyxl: TERINSTAL")
-    except ImportError:
-        print("❌ Library openpyxl TIDAK TERINSTAL!")
-        print("   Jalankan: pip install openpyxl")
-        return
+    print("📊 Export CSV: AKTIF (tanpa openpyxl)")
+    print("📝 Export TXT: AKTIF (tanpa openpyxl)")
+    print("="*60)
     
     app = ApplicationBuilder().token(TOKEN).build()
     
@@ -1212,7 +1301,8 @@ def main():
     app.add_handler(CommandHandler('list', list_produk))
     app.add_handler(CommandHandler('stats', statistik))
     app.add_handler(CommandHandler('lokasi', cek_lokasi))
-    app.add_handler(CommandHandler('export', export_excel))
+    app.add_handler(CommandHandler('export_csv', export_csv))
+    app.add_handler(CommandHandler('export_txt', export_txt))
     app.add_handler(CommandHandler('bantuan', bantuan))
     app.add_handler(tambah_conv)
     
