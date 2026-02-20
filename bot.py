@@ -1,19 +1,20 @@
 import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from datetime import datetime
 
-# ✅ PERBAIKAN 1: Token langsung diassign, bukan pakai os.getenv()
-TOKEN = "8590161595:AAFQ2dSjsi_dKr61lvicnGkE2EAwMsusSCw"  # Gunakan token baru dari BotFather
+# ✅ TOKEN ANDA (SUDAH BENAR)
+TOKEN = "8590161595:AAFQ2dSjsi_dKr61lvicnGkE2EAwMsusSCw"
 
-# States
-NAMA, TANGGAL, LOKASI = range(3)
+# States untuk ConversationHandler
+NAMA, TANGGAL, LOKASI, HAPUS = range(4)
 
-# Simpan data di dictionary per user (lebih baik daripada list global)
+# Database sederhana (dalam memory)
 data_produk = {}  # {user_id: [produk1, produk2, ...]}
 
+# ===================== HANDLER START =====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # Inisialisasi data user jika belum ada
     if user_id not in data_produk:
         data_produk[user_id] = []
     
@@ -27,73 +28,94 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+# ===================== HANDLER TAMBAH PRODUK =====================
 async def tambah(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📦 Masukkan *nama produk*:", parse_mode="Markdown")
+    """Memulai proses tambah produk"""
+    await update.message.reply_text(
+        "📦 *Tambah Produk Baru*\n\n"
+        "Silakan masukkan *nama produk*:",
+        parse_mode="Markdown"
+    )
     return NAMA
 
 async def nama_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["nama"] = update.message.text
-    await update.message.reply_text("📅 Masukkan *tanggal expired* (format: YYYY-MM-DD):\nContoh: 2026-12-31", parse_mode="Markdown")
+    """Menerima nama produk"""
+    context.user_data['nama'] = update.message.text
+    await update.message.reply_text(
+        "📅 Sekarang masukkan *tanggal expired*\n"
+        "Format: YYYY-MM-DD\n"
+        "Contoh: 2026-12-31",
+        parse_mode="Markdown"
+    )
     return TANGGAL
 
 async def tanggal_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Menerima tanggal expired"""
+    tanggal_str = update.message.text
+    
     # Validasi format tanggal
-    tanggal = update.message.text
     try:
-        # Cek format tanggal (sederhana)
-        datetime.strptime(tanggal, '%Y-%m-%d')
-        context.user_data["tanggal"] = tanggal
-        await update.message.reply_text("📍 Masukkan *lokasi penyimpanan*:\nContoh: Rak A3, Gudang, Kulkas", parse_mode="Markdown")
+        datetime.strptime(tanggal_str, '%Y-%m-%d')
+        context.user_data['tanggal'] = tanggal_str
+        await update.message.reply_text(
+            "📍 Terakhir, masukkan *lokasi penyimpanan*:\n"
+            "Contoh: Rak A3, Lemari Es, Gudang Belakang",
+            parse_mode="Markdown"
+        )
         return LOKASI
-    except:
-        await update.message.reply_text("❌ Format salah! Gunakan YYYY-MM-DD\nContoh: 2026-12-31")
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Format tanggal salah! Gunakan YYYY-MM-DD\n"
+            "Contoh: 2026-12-31\n\n"
+            "Silakan coba lagi:"
+        )
         return TANGGAL
 
 async def lokasi_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from datetime import datetime
-    
+    """Menerima lokasi dan menyimpan produk"""
     user_id = update.effective_user.id
-    context.user_data["lokasi"] = update.message.text
-
-    produk = {
-        "nama": context.user_data["nama"],
-        "tanggal": context.user_data["tanggal"],
-        "lokasi": context.user_data["lokasi"],
+    lokasi = update.message.text
+    
+    # Buat produk baru
+    produk_baru = {
+        "nama": context.user_data['nama'],
+        "tanggal": context.user_data['tanggal'],
+        "lokasi": lokasi
     }
-
-    # Simpan ke data user
+    
+    # Simpan ke database
     if user_id not in data_produk:
         data_produk[user_id] = []
-    data_produk[user_id].append(produk)
-
-    # Format tanggal untuk tampilan
-    expired_date = datetime.strptime(produk['tanggal'], '%Y-%m-%d').date()
+    data_produk[user_id].append(produk_baru)
     
+    # Konfirmasi
+    expired_date = datetime.strptime(produk_baru['tanggal'], '%Y-%m-%d').date()
     await update.message.reply_text(
         f"✅ *Produk berhasil ditambahkan!*\n\n"
-        f"📦 *Nama:* {produk['nama']}\n"
+        f"📦 *Nama:* {produk_baru['nama']}\n"
         f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n"
-        f"📍 *Lokasi:* {produk['lokasi']}",
+        f"📍 *Lokasi:* {produk_baru['lokasi']}",
         parse_mode="Markdown"
     )
-
-    # Bersihkan user_data
+    
+    # Bersihkan data sementara
     context.user_data.clear()
     return ConversationHandler.END
 
+# ===================== HANDLER LIST PRODUK =====================
 async def list_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from datetime import datetime
-    
+    """Menampilkan semua produk"""
     user_id = update.effective_user.id
     produk_list = data_produk.get(user_id, [])
     
     if not produk_list:
         await update.message.reply_text(
-            "📭 *Belum ada produk*\n\nGunakan /tambah untuk menambahkan produk.",
+            "📭 *Belum ada produk*\n\n"
+            "Gunakan /tambah untuk menambahkan produk.",
             parse_mode="Markdown"
         )
         return
-
+    
     # Urutkan berdasarkan tanggal
     produk_list.sort(key=lambda x: x['tanggal'])
     
@@ -120,98 +142,112 @@ async def list_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pesan += f"Total: {len(produk_list)} produk"
     await update.message.reply_text(pesan, parse_mode="Markdown")
 
+# ===================== HANDLER HAPUS PRODUK =====================
 async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Memulai proses hapus produk"""
     user_id = update.effective_user.id
     produk_list = data_produk.get(user_id, [])
     
     if not produk_list:
-        await update.message.reply_text("📭 Tidak ada produk untuk dihapus.")
-        return
+        await update.message.reply_text(
+            "📭 *Tidak ada produk untuk dihapus.*",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
     
-    pesan = "🗑 *HAPUS PRODUK*\n\nKetik nomor produk yang ingin dihapus:\n\n"
+    # Tampilkan daftar produk
+    pesan = "🗑 *HAPUS PRODUK*\n\nKetik *nomor* produk yang ingin dihapus:\n\n"
     for i, p in enumerate(produk_list, 1):
         pesan += f"{i}. {p['nama']} - {p['tanggal']} ({p['lokasi']})\n"
     
     pesan += "\nKetik 0 untuk batal"
     await update.message.reply_text(pesan, parse_mode="Markdown")
     
-    # Simpan daftar produk di context untuk proses hapus
-    context.user_data['daftar_hapus'] = produk_list
+    # Simpan daftar produk di context
+    context.user_data['daftar_hapus'] = produk_list.copy()
     return HAPUS
 
 async def proses_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Memproses penghapusan produk"""
     user_id = update.effective_user.id
+    
     try:
         pilihan = int(update.message.text)
         
         if pilihan == 0:
             await update.message.reply_text("🚫 Penghapusan dibatalkan.")
+            context.user_data.clear()
             return ConversationHandler.END
         
         produk_list = context.user_data.get('daftar_hapus', [])
         
         if 1 <= pilihan <= len(produk_list):
-            produk_hapus = produk_list.pop(pilihan - 1)
-            data_produk[user_id] = produk_list
+            # Hapus produk
+            produk_hapus = data_produk[user_id].pop(pilihan - 1)
             
             await update.message.reply_text(
-                f"✅ *Produk dihapus!*\n\n"
+                f"✅ *Produk berhasil dihapus!*\n\n"
                 f"Nama: {produk_hapus['nama']}\n"
                 f"Tanggal: {produk_hapus['tanggal']}\n"
                 f"Lokasi: {produk_hapus['lokasi']}",
                 parse_mode="Markdown"
             )
         else:
-            await update.message.reply_text("❌ Nomor tidak valid!")
+            await update.message.reply_text("❌ Nomor tidak valid! Silakan coba lagi.")
             
     except ValueError:
-        await update.message.reply_text("❌ Masukkan nomor yang valid!")
+        await update.message.reply_text("❌ Masukkan nomor yang valid (angka)!")
     
+    context.user_data.clear()
     return ConversationHandler.END
 
+# ===================== HANDLER BATAL =====================
 async def batal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Membatalkan percakapan"""
     await update.message.reply_text("🚫 Perintah dibatalkan.")
+    context.user_data.clear()
     return ConversationHandler.END
 
+# ===================== MAIN =====================
 def main():
-    # ✅ PASTIKAN TOKEN DI SINI BENAR
-    print(f"Token yang digunakan: {TOKEN[:10]}...")  # Cek token (hanya 10 karakter pertama)
+    """Fungsi utama menjalankan bot"""
+    print("🚀 Memulai Bot Monitoring Expired...")
+    print(f"🤖 Token: {TOKEN[:10]}...")
     
+    # Buat aplikasi
     app = ApplicationBuilder().token(TOKEN).build()
-
-    # Conversation handler untuk tambah produk
+    
+    # Conversation handler untuk TAMBAH produk
     tambah_conv = ConversationHandler(
-        entry_points=[CommandHandler("tambah", tambah)],
+        entry_points=[CommandHandler('tambah', tambah)],
         states={
             NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, nama_produk)],
             TANGGAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, tanggal_produk)],
             LOKASI: [MessageHandler(filters.TEXT & ~filters.COMMAND, lokasi_produk)],
         },
-        fallbacks=[CommandHandler("batal", batal)],
+        fallbacks=[CommandHandler('batal', batal)]
     )
-
-    # Handler untuk hapus produk
+    
+    # Conversation handler untuk HAPUS produk
     hapus_conv = ConversationHandler(
-        entry_points=[CommandHandler("hapus", hapus)],
+        entry_points=[CommandHandler('hapus', hapus)],
         states={
             HAPUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, proses_hapus)],
         },
-        fallbacks=[CommandHandler("batal", batal)],
+        fallbacks=[CommandHandler('batal', batal)]
     )
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("list", list_produk))
+    
+    # Daftarkan semua handler
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('list', list_produk))
     app.add_handler(tambah_conv)
     app.add_handler(hapus_conv)
-
-    print("✅ Bot Monitoring Expired + Lokasi started...")
-    print("📱 Cek Telegram Anda sekarang!")
+    
+    print("✅ Bot siap! Cek Telegram sekarang...")
+    print("📱 Kirim /start ke bot Anda")
+    
+    # Jalankan bot
     app.run_polling()
-
-# Tambahkan import datetime
-from datetime import datetime
-# Tambahkan state HAPUS
-HAPUS = 3
 
 if __name__ == "__main__":
     main()
