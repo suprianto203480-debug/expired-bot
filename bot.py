@@ -16,7 +16,7 @@ TOKEN = "8590161595:AAFQ2dSjsi_dKr61lvicnGkE2EAwMsusSCw"
 DATA_FILE = "produk_database.json"
 
 # States untuk ConversationHandler
-NAMA, TANGGAL, TIPE_LOKASI, PLUGIN, SHOWCASE, KATEGORI = range(6)
+NAMA, TANGGAL, PIC, TIPE_LOKASI, PLUGIN, SHOWCASE = range(6)
 
 # ===================== FUNGSI WAKTU WIB =====================
 def get_waktu_wib():
@@ -67,7 +67,7 @@ def save_user_data(user_id, user_data):
 
 # ===================== FUNGSI EXPORT CSV =====================
 async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Export data produk ke file CSV (tanpa openpyxl)"""
+    """Export data produk ke file CSV"""
     user_id = update.effective_user.id
     user_data = get_user_data(user_id)
     produk_list = user_data.get("produk", [])
@@ -90,14 +90,14 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Header CSV
+        # Header CSV dengan kolom PIC
         writer.writerow([
             "No", 
             "Nama Produk", 
             "Tanggal Expired", 
             "Sisa Hari", 
             "Status",
-            "Kategori", 
+            "PIC",
             "Lokasi", 
             "Tipe Lokasi", 
             "Nomor",
@@ -132,7 +132,7 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 expired_date.strftime('%d/%m/%Y'),
                 selisih,
                 status,
-                p['kategori'],
+                p.get('pic', '-'),
                 p['lokasi_detail'],
                 p['lokasi_tipe'],
                 p['lokasi_nomor'],
@@ -239,7 +239,7 @@ DAFTAR PRODUK:
    Expired    : {expired_date.strftime('%d %B %Y')}
    Sisa Hari  : {selisih}
    Status     : {status}
-   Kategori   : {p['kategori']}
+   PIC        : {p.get('pic', '-')}
    Lokasi     : {p['lokasi_detail']}
    Ditambahkan: {p.get('ditambahkan_jam', '-')} WIB - {p.get('ditambahkan_tanggal', '-')}
 {'-'*40}
@@ -312,9 +312,9 @@ async def cek_expired(context: ContextTypes.DEFAULT_TYPE):
                         text=(
                             f"⚠️ *PERINGATAN H-7!*\n\n"
                             f"📦 *Produk:* {produk['nama']}\n"
+                            f"👤 *PIC:* {produk.get('pic', '-')}\n"
                             f"📍 *Lokasi:* {produk['lokasi_detail']}\n"
-                            f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n"
-                            f"🏷 *Kategori:* {produk.get('kategori', 'Umum')}\n\n"
+                            f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n\n"
                             f"⏰ *Tersisa 7 hari lagi!*"
                         ),
                         parse_mode=ParseMode.MARKDOWN
@@ -328,9 +328,9 @@ async def cek_expired(context: ContextTypes.DEFAULT_TYPE):
                         text=(
                             f"⚠️ *PERINGATAN H-3!*\n\n"
                             f"📦 *Produk:* {produk['nama']}\n"
+                            f"👤 *PIC:* {produk.get('pic', '-')}\n"
                             f"📍 *Lokasi:* {produk['lokasi_detail']}\n"
-                            f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n"
-                            f"🏷 *Kategori:* {produk.get('kategori', 'Umum')}\n\n"
+                            f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n\n"
                             f"⏰ *Tersisa 3 hari lagi!*"
                         ),
                         parse_mode=ParseMode.MARKDOWN
@@ -344,9 +344,9 @@ async def cek_expired(context: ContextTypes.DEFAULT_TYPE):
                         text=(
                             f"⚠️ *PERINGATAN H-1!*\n\n"
                             f"📦 *Produk:* {produk['nama']}\n"
+                            f"👤 *PIC:* {produk.get('pic', '-')}\n"
                             f"📍 *Lokasi:* {produk['lokasi_detail']}\n"
-                            f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n"
-                            f"🏷 *Kategori:* {produk.get('kategori', 'Umum')}\n\n"
+                            f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n\n"
                             f"⏰ *BESOK EXPIRED!*"
                         ),
                         parse_mode=ParseMode.MARKDOWN
@@ -360,9 +360,9 @@ async def cek_expired(context: ContextTypes.DEFAULT_TYPE):
                         text=(
                             f"❌ *EXPIRED HARI INI!*\n\n"
                             f"📦 *Produk:* {produk['nama']}\n"
+                            f"👤 *PIC:* {produk.get('pic', '-')}\n"
                             f"📍 *Lokasi:* {produk['lokasi_detail']}\n"
-                            f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n"
-                            f"🏷 *Kategori:* {produk.get('kategori', 'Umum')}\n\n"
+                            f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n\n"
                             f"⚠️ *Produk sudah expired hari ini!*"
                         ),
                         parse_mode=ParseMode.MARKDOWN
@@ -376,9 +376,9 @@ async def cek_expired(context: ContextTypes.DEFAULT_TYPE):
                         text=(
                             f"❌ *PRODUK SUDAH EXPIRED!*\n\n"
                             f"📦 *Produk:* {produk['nama']}\n"
+                            f"👤 *PIC:* {produk.get('pic', '-')}\n"
                             f"📍 *Lokasi:* {produk['lokasi_detail']}\n"
-                            f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n"
-                            f"🏷 *Kategori:* {produk.get('kategori', 'Umum')}\n\n"
+                            f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n\n"
                             f"⚠️ *Sudah {abs(selisih)} hari expired!*"
                         ),
                         parse_mode=ParseMode.MARKDOWN
@@ -436,13 +436,66 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🏪 *MONITORING EXPIRED PRO* 🏪\n\n"
         f"🕒 *Waktu:* {waktu['jam']} WIB - {waktu['tanggal']}\n\n"
-        f"Sistem manajemen expired dengan *lokasi bertingkat*:\n"
-        f"• 📍 Plug-in 1-4 (Rak penyimpanan)\n"
-        f"• 📍 Showcase 1-4 (Etalage display)\n\n"
+        f"Sistem manajemen expired dengan *PIC & Lokasi Bertingkat*:\n"
+        f"• 👤 PIC: Nama penanggung jawab\n"
+        f"• 📍 Plug-in 1-35 (Rak penyimpanan)\n"
+        f"• 📍 Showcase 1-10 (Etalage display)\n\n"
         f"Pilih menu di bawah:",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
+
+# ===================== HANDLER UNTUK INPUT PRODUK =====================
+async def nama_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Terima nama produk"""
+    context.user_data['nama'] = update.message.text
+    await update.message.reply_text(
+        "📅 Masukkan *tanggal expired* (YYYY-MM-DD):\n"
+        "Contoh: 2026-12-31",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    return TANGGAL
+
+async def tanggal_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Terima tanggal expired"""
+    try:
+        datetime.strptime(update.message.text, '%Y-%m-%d')
+        context.user_data['tanggal'] = update.message.text
+        
+        # MINTA NAMA PIC
+        await update.message.reply_text(
+            "👤 *Masukkan nama PIC (Penanggung Jawab):*\n\n"
+            "Contoh: Supri, Angga, Andre, Budi, dll\n\n"
+            "Silakan ketik nama PIC:",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return PIC
+    except:
+        await update.message.reply_text(
+            "❌ Format salah! Gunakan YYYY-MM-DD\n"
+            "Contoh: 2026-12-31"
+        )
+        return TANGGAL
+
+async def pic_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Terima input nama PIC dari user"""
+    context.user_data['pic'] = update.message.text
+    
+    # Setelah dapat nama PIC, lanjut ke pilihan lokasi
+    keyboard = [
+        [InlineKeyboardButton("📦 PLUG-IN (Rak 1-35)", callback_data="tipe_plugin")],
+        [InlineKeyboardButton("🪟 SHOWCASE (Etalase 1-10)", callback_data="tipe_showcase")],
+        [InlineKeyboardButton("🔙 BATAL", callback_data="kembali_ke_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"👤 *PIC:* {context.user_data['pic']}\n\n"
+        f"📍 *PILIH TIPE LOKASI:*",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+    return TIPE_LOKASI
 
 # ===================== CALLBACK HANDLER UTAMA =====================
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -505,34 +558,38 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Tombol untuk tambah produk (tipe lokasi)
     elif query.data == "tipe_plugin":
-        # Pilih nomor plug-in
-        keyboard = [
-            [InlineKeyboardButton("📦 Plug-in 1", callback_data="plugin_1")],
-            [InlineKeyboardButton("📦 Plug-in 2", callback_data="plugin_2")],
-            [InlineKeyboardButton("📦 Plug-in 3", callback_data="plugin_3")],
-            [InlineKeyboardButton("📦 Plug-in 4", callback_data="plugin_4")],
-            [InlineKeyboardButton("🔙 KEMBALI", callback_data="kembali_tipe")]
-        ]
+        # Pilih nomor plug-in (1-35)
+        keyboard = []
+        # Buat tombol dalam baris-baris (5 tombol per baris)
+        for i in range(1, 36, 5):
+            row = []
+            for j in range(i, min(i+5, 36)):
+                row.append(InlineKeyboardButton(f"📦 {j}", callback_data=f"plugin_{j}"))
+            keyboard.append(row)
+        
+        keyboard.append([InlineKeyboardButton("🔙 KEMBALI", callback_data="kembali_tipe")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "📍 *PILIH NOMOR PLUG-IN:*",
+            "📍 *PILIH NOMOR PLUG-IN (1-35):*",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
         return PLUGIN
     
     elif query.data == "tipe_showcase":
-        # Pilih nomor showcase
-        keyboard = [
-            [InlineKeyboardButton("🪟 Showcase 1", callback_data="showcase_1")],
-            [InlineKeyboardButton("🪟 Showcase 2", callback_data="showcase_2")],
-            [InlineKeyboardButton("🪟 Showcase 3", callback_data="showcase_3")],
-            [InlineKeyboardButton("🪟 Showcase 4", callback_data="showcase_4")],
-            [InlineKeyboardButton("🔙 KEMBALI", callback_data="kembali_tipe")]
-        ]
+        # Pilih nomor showcase (1-10)
+        keyboard = []
+        # Buat tombol dalam baris-baris (5 tombol per baris)
+        for i in range(1, 11, 5):
+            row = []
+            for j in range(i, min(i+5, 11)):
+                row.append(InlineKeyboardButton(f"🪟 {j}", callback_data=f"showcase_{j}"))
+            keyboard.append(row)
+        
+        keyboard.append([InlineKeyboardButton("🔙 KEMBALI", callback_data="kembali_tipe")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "📍 *PILIH NOMOR SHOWCASE:*",
+            "📍 *PILIH NOMOR SHOWCASE (1-10):*",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
@@ -541,8 +598,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "kembali_tipe":
         # Kembali ke pilihan tipe lokasi
         keyboard = [
-            [InlineKeyboardButton("📦 PLUG-IN (Rak)", callback_data="tipe_plugin")],
-            [InlineKeyboardButton("🪟 SHOWCASE (Etalase)", callback_data="tipe_showcase")],
+            [InlineKeyboardButton("📦 PLUG-IN (Rak 1-35)", callback_data="tipe_plugin")],
+            [InlineKeyboardButton("🪟 SHOWCASE (Etalase 1-10)", callback_data="tipe_showcase")],
             [InlineKeyboardButton("🔙 BATAL", callback_data="kembali_ke_menu")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -560,24 +617,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['lokasi_nomor'] = nomor
         context.user_data['lokasi_detail'] = f"Plug-in {nomor}"
         
-        # Langsung ke pilih kategori
-        keyboard = [
-            [InlineKeyboardButton("🥛 Susu", callback_data="kategori_susu")],
-            [InlineKeyboardButton("🥩 Daging", callback_data="kategori_daging")],
-            [InlineKeyboardButton("🥦 Sayur", callback_data="kategori_sayur")],
-            [InlineKeyboardButton("🍞 Roti", callback_data="kategori_roti")],
-            [InlineKeyboardButton("🧃 Minuman", callback_data="kategori_minuman")],
-            [InlineKeyboardButton("📦 Lainnya", callback_data="kategori_lain")],
-            [InlineKeyboardButton("🔙 KEMBALI", callback_data="kembali_tipe")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
-            f"📍 *Lokasi:* {context.user_data['lokasi_detail']}\n\n"
-            f"🏷 *PILIH KATEGORI PRODUK:*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-        return KATEGORI
+        # Setelah pilih lokasi, langsung simpan produk
+        await simpan_produk(update, context)
+        return ConversationHandler.END
     
     # Pilih nomor showcase
     elif query.data.startswith("showcase_"):
@@ -586,36 +628,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['lokasi_nomor'] = nomor
         context.user_data['lokasi_detail'] = f"Showcase {nomor}"
         
-        # Langsung ke pilih kategori
-        keyboard = [
-            [InlineKeyboardButton("🥛 Susu", callback_data="kategori_susu")],
-            [InlineKeyboardButton("🥩 Daging", callback_data="kategori_daging")],
-            [InlineKeyboardButton("🥦 Sayur", callback_data="kategori_sayur")],
-            [InlineKeyboardButton("🍞 Roti", callback_data="kategori_roti")],
-            [InlineKeyboardButton("🧃 Minuman", callback_data="kategori_minuman")],
-            [InlineKeyboardButton("📦 Lainnya", callback_data="kategori_lain")],
-            [InlineKeyboardButton("🔙 KEMBALI", callback_data="kembali_tipe")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
-            f"📍 *Lokasi:* {context.user_data['lokasi_detail']}\n\n"
-            f"🏷 *PILIH KATEGORI PRODUK:*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-        return KATEGORI
-    
-    # Pilih kategori
-    elif query.data.startswith("kategori_"):
-        kategori_map = {
-            "kategori_susu": "🥛 Susu",
-            "kategori_daging": "🥩 Daging",
-            "kategori_sayur": "🥦 Sayur",
-            "kategori_roti": "🍞 Roti",
-            "kategori_minuman": "🧃 Minuman",
-            "kategori_lain": "📦 Lainnya"
-        }
-        context.user_data['kategori'] = kategori_map.get(query.data, "📦 Lainnya")
+        # Setelah pilih lokasi, langsung simpan produk
         await simpan_produk(update, context)
         return ConversationHandler.END
     
@@ -665,10 +678,10 @@ async def export_csv_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Header
+        # Header dengan PIC
         writer.writerow([
             "No", "Nama Produk", "Tanggal Expired", "Sisa Hari", "Status",
-            "Kategori", "Lokasi", "Tipe Lokasi", "Nomor",
+            "PIC", "Lokasi", "Tipe Lokasi", "Nomor",
             "Jam Ditambahkan", "Tanggal Ditambahkan"
         ])
         
@@ -693,7 +706,7 @@ async def export_csv_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             
             writer.writerow([
                 i, p['nama'], expired_date.strftime('%d/%m/%Y'), selisih, status,
-                p['kategori'], p['lokasi_detail'], p['lokasi_tipe'], p['lokasi_nomor'],
+                p.get('pic', '-'), p['lokasi_detail'], p['lokasi_tipe'], p['lokasi_nomor'],
                 p.get('ditambahkan_jam', '-'), p.get('ditambahkan_tanggal', '-')
             ])
         
@@ -789,7 +802,7 @@ DAFTAR PRODUK:
    Expired    : {expired_date.strftime('%d %B %Y')}
    Sisa Hari  : {selisih}
    Status     : {status}
-   Kategori   : {p['kategori']}
+   PIC        : {p.get('pic', '-')}
    Lokasi     : {p['lokasi_detail']}
    Ditambahkan: {p.get('ditambahkan_jam', '-')} WIB - {p.get('ditambahkan_tanggal', '-')}
 {'-'*40}
@@ -821,44 +834,6 @@ DAFTAR PRODUK:
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.message.reply_text("Pilih menu:", reply_markup=reply_markup)
 
-# ===================== TAMBAH PRODUK (MESSAGE HANDLER) =====================
-async def nama_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Terima nama produk"""
-    context.user_data['nama'] = update.message.text
-    await update.message.reply_text(
-        "📅 Masukkan *tanggal expired* (YYYY-MM-DD):\n"
-        "Contoh: 2026-12-31",
-        parse_mode=ParseMode.MARKDOWN
-    )
-    return TANGGAL
-
-async def tanggal_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Terima tanggal expired"""
-    try:
-        datetime.strptime(update.message.text, '%Y-%m-%d')
-        context.user_data['tanggal'] = update.message.text
-        
-        # Pilih tipe lokasi
-        keyboard = [
-            [InlineKeyboardButton("📦 PLUG-IN (Rak)", callback_data="tipe_plugin")],
-            [InlineKeyboardButton("🪟 SHOWCASE (Etalase)", callback_data="tipe_showcase")],
-            [InlineKeyboardButton("🔙 BATAL", callback_data="kembali_ke_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(
-            "📍 *PILIH TIPE LOKASI:*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-        return TIPE_LOKASI
-    except:
-        await update.message.reply_text(
-            "❌ Format salah! Gunakan YYYY-MM-DD\n"
-            "Contoh: 2026-12-31"
-        )
-        return TANGGAL
-
 async def simpan_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Simpan produk ke database dengan waktu WIB"""
     if update.callback_query:
@@ -873,10 +848,10 @@ async def simpan_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     produk = {
         "nama": context.user_data['nama'],
         "tanggal": context.user_data['tanggal'],
+        "pic": context.user_data['pic'],
         "lokasi_tipe": context.user_data['lokasi_tipe'],
         "lokasi_nomor": context.user_data['lokasi_nomor'],
         "lokasi_detail": context.user_data['lokasi_detail'],
-        "kategori": context.user_data['kategori'],
         "ditambahkan": waktu['full'],
         "ditambahkan_tanggal": waktu['tanggal'],
         "ditambahkan_jam": waktu['jam'],
@@ -906,7 +881,7 @@ async def simpan_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📦 *Nama:* {produk['nama']}\n"
         f"📅 *Expired:* {expired_date.strftime('%d %B %Y')}\n"
         f"📊 *Status:* {status}\n"
-        f"🏷 *Kategori:* {produk['kategori']}\n"
+        f"👤 *PIC:* {produk['pic']}\n"
         f"📍 *Lokasi:* {produk['lokasi_detail']}\n"
         f"⏰ *Ditambahkan:* {waktu['jam']} WIB - {waktu['tanggal']}\n\n"
         f"🔔 Notifikasi otomatis aktif: H-7, H-3, H-1"
@@ -981,7 +956,7 @@ async def list_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             pesan += f"{i}. {status} *{p['nama']}*\n"
             pesan += f"   📅 {expired_date.strftime('%d/%m/%Y')} ({selisih} hari)\n"
-            pesan += f"   🏷 {p['kategori']}\n"
+            pesan += f"   👤 PIC: {p.get('pic', '-')}\n"
             pesan += f"   📍 {p['lokasi_detail']}\n"
             pesan += f"   ⏰ {p.get('ditambahkan_jam', '-')} WIB\n\n"
         
@@ -1017,9 +992,9 @@ async def statistik(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Statistik status
     aman = warning_h7 = warning_h3 = warning_h1 = expired_hari_ini = expired = 0
-    kategori = {}
-    lokasi_plugin = {f"Plug-in {i}": 0 for i in range(1,5)}
-    lokasi_showcase = {f"Showcase {i}": 0 for i in range(1,5)}
+    pic_stats = {}
+    lokasi_plugin = {f"Plug-in {i}": 0 for i in range(1,36)}
+    lokasi_showcase = {f"Showcase {i}": 0 for i in range(1,11)}
     
     for p in produk_list:
         expired_date = datetime.strptime(p['tanggal'], '%Y-%m-%d').date()
@@ -1038,8 +1013,9 @@ async def statistik(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             aman += 1
         
-        kat = p.get('kategori', 'Lainnya')
-        kategori[kat] = kategori.get(kat, 0) + 1
+        # Statistik per PIC
+        pic = p.get('pic', 'Tidak ada')
+        pic_stats[pic] = pic_stats.get(pic, 0) + 1
         
         if p['lokasi_detail'].startswith('Plug-in'):
             lokasi_plugin[p['lokasi_detail']] += 1
@@ -1057,16 +1033,18 @@ async def statistik(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pesan += f"⏰ Expired hari ini: {expired_hari_ini}\n"
     pesan += f"❌ Sudah expired: {expired}\n\n"
     
-    if kategori:
-        pesan += "*KATEGORI:*\n"
-        for kat, jml in kategori.items():
-            pesan += f"{kat}: {jml}\n"
+    if pic_stats:
+        pesan += "*PER PIC:*\n"
+        for pic, jml in sorted(pic_stats.items(), key=lambda x: x[1], reverse=True):
+            pesan += f"👤 {pic}: {jml} produk\n"
         pesan += "\n"
     
     pesan += "*LOKASI:*\n"
-    for lok, jml in {**lokasi_plugin, **lokasi_showcase}.items():
-        if jml > 0:
-            pesan += f"📍 {lok}: {jml} produk\n"
+    plugin_aktif = {lok:jml for lok, jml in lokasi_plugin.items() if jml > 0}
+    showcase_aktif = {lok:jml for lok, jml in lokasi_showcase.items() if jml > 0}
+    
+    for lok, jml in {**plugin_aktif, **showcase_aktif}.items():
+        pesan += f"📍 {lok}: {jml} produk\n"
     
     pesan += f"\n📦 *TOTAL PRODUK: {len(produk_list)}*"
     
@@ -1118,7 +1096,7 @@ async def cek_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pesan += f"*{lokasi}:* {len(lokasi_dict[lokasi])} produk\n"
             for p in lokasi_dict[lokasi]:
                 expired_date = datetime.strptime(p['tanggal'], '%Y-%m-%d').date()
-                pesan += f"  • {p['nama']} ({expired_date.strftime('%d/%m')})\n"
+                pesan += f"  • {p['nama']} (PIC: {p.get('pic', '-')}) - {expired_date.strftime('%d/%m')}\n"
             pesan += "\n"
         
         await reply_func(pesan, parse_mode=ParseMode.MARKDOWN)
@@ -1168,7 +1146,7 @@ async def hapus_mulai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i, p in enumerate(produk_list, 1):
         expired_date = datetime.strptime(p['tanggal'], '%Y-%m-%d').date()
         keyboard.append([InlineKeyboardButton(
-            f"{i}. {p['nama']} ({expired_date.strftime('%d/%m')}) - {p['lokasi_detail']}",
+            f"{i}. {p['nama']} (PIC: {p.get('pic', '-')}) - {expired_date.strftime('%d/%m')} - {p['lokasi_detail']}",
             callback_data=f"hapus_{i-1}"
         )])
     
@@ -1195,6 +1173,7 @@ async def hapus_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         f"✅ *Produk berhasil dihapus!*\n\n"
         f"Nama: {produk_hapus['nama']}\n"
+        f"PIC: {produk_hapus.get('pic', '-')}\n"
         f"Lokasi: {produk_hapus['lokasi_detail']}",
         parse_mode=ParseMode.MARKDOWN
     )
@@ -1226,9 +1205,16 @@ async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/export_txt - Export ke TXT\n"
         "/bantuan - Bantuan ini\n\n"
         
+        "*ALUR INPUT PRODUK:*\n"
+        "1️⃣ Nama Produk\n"
+        "2️⃣ Tanggal Expired (YYYY-MM-DD)\n"
+        "3️⃣ Nama PIC (Penanggung Jawab)\n"
+        "4️⃣ Pilih Tipe Lokasi\n"
+        "5️⃣ Pilih Nomor Lokasi\n\n"
+        
         "*LOKASI BERTINGKAT:*\n"
-        "• Plug-in 1-4 : Rak penyimpanan\n"
-        "• Showcase 1-4 : Etalage display\n\n"
+        "• Plug-in 1-35 : Rak penyimpanan\n"
+        "• Showcase 1-10 : Etalage display\n\n"
         
         "*NOTIFIKASI OTOMATIS:*\n"
         "⚠️ H-7 : Peringatan awal\n"
@@ -1241,7 +1227,7 @@ async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Contoh: 2026-12-31\n\n"
         
         "*EXPORT DATA:*\n"
-        "📄 CSV : Bisa dibuka di Excel\n"
+        "📄 CSV : Bisa dibuka di Excel (dengan kolom PIC)\n"
         "📝 TXT : Format teks biasa",
         parse_mode=ParseMode.MARKDOWN
     )
@@ -1261,11 +1247,14 @@ async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===================== MAIN =====================
 def main():
     print("="*60)
-    print("🏪 BOT EXPIRED PRO - EXPORT CSV/TXT")
+    print("🏪 BOT EXPIRED PRO - DENGAN FITUR PIC")
     print("="*60)
     print(f"🤖 Token: {TOKEN[:15]}...")
-    print("📊 Export CSV: AKTIF (tanpa openpyxl)")
-    print("📝 Export TXT: AKTIF (tanpa openpyxl)")
+    print("👤 Fitur PIC: AKTIF (input nama user)")
+    print("📍 Plug-in: 1-35")
+    print("📍 Showcase: 1-10")
+    print("📊 Export CSV: AKTIF (dengan kolom PIC)")
+    print("📝 Export TXT: AKTIF")
     print("="*60)
     
     app = ApplicationBuilder().token(TOKEN).build()
@@ -1285,10 +1274,10 @@ def main():
         states={
             NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, nama_produk)],
             TANGGAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, tanggal_produk)],
+            PIC: [MessageHandler(filters.TEXT & ~filters.COMMAND, pic_produk)],
             TIPE_LOKASI: [CallbackQueryHandler(button_callback)],
             PLUGIN: [CallbackQueryHandler(button_callback)],
             SHOWCASE: [CallbackQueryHandler(button_callback)],
-            KATEGORI: [CallbackQueryHandler(button_callback)],
         },
         fallbacks=[
             CommandHandler('batal', lambda u,c: ConversationHandler.END),
