@@ -87,14 +87,28 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = get_user_data(user_id)
     produk_list = user_data.get("produk", [])
     
+    # Handle jika dipanggil dari callback
+    if update.callback_query:
+        query = update.callback_query
+        reply_func = query.edit_message_text
+        message = query.message
+    else:
+        reply_func = update.message.reply_text
+        message = update.message
+    
     if not produk_list:
-        await update.message.reply_text(
+        await reply_func(
             "📭 *Tidak ada data untuk diexport*",
             parse_mode=ParseMode.MARKDOWN
         )
+        # Tampilkan tombol kembali
+        keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await message.reply_text("Pilih menu:", reply_markup=reply_markup)
         return
     
-    waiting_msg = await update.message.reply_text(
+    # Kirim pesan proses
+    waiting_msg = await message.reply_text(
         "⏳ *Sedang memproses export data...*",
         parse_mode=ParseMode.MARKDOWN
     )
@@ -146,7 +160,7 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         waktu = format_waktu_wib()
         filename = f"produk_export_{waktu['tanggal'].replace('/', '')}_{waktu['jam'].replace(':', '')}.csv"
         
-        await update.message.reply_document(
+        await message.reply_document(
             document=csv_bytes,
             filename=filename,
             caption=(
@@ -161,10 +175,15 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error export CSV: {e}")
         await waiting_msg.delete()
-        await update.message.reply_text(
+        await message.reply_text(
             f"❌ *Gagal membuat file CSV*\nError: {str(e)[:100]}",
             parse_mode=ParseMode.MARKDOWN
         )
+    
+    # Tombol kembali setelah export
+    keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await message.reply_text("Pilih menu:", reply_markup=reply_markup)
 
 async def export_txt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Export data produk ke file TXT"""
@@ -172,14 +191,26 @@ async def export_txt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = get_user_data(user_id)
     produk_list = user_data.get("produk", [])
     
+    # Handle jika dipanggil dari callback
+    if update.callback_query:
+        query = update.callback_query
+        reply_func = query.edit_message_text
+        message = query.message
+    else:
+        reply_func = update.message.reply_text
+        message = update.message
+    
     if not produk_list:
-        await update.message.reply_text(
+        await reply_func(
             "📭 *Tidak ada data untuk diexport*",
             parse_mode=ParseMode.MARKDOWN
         )
+        keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await message.reply_text("Pilih menu:", reply_markup=reply_markup)
         return
     
-    waiting_msg = await update.message.reply_text(
+    waiting_msg = await message.reply_text(
         "⏳ *Sedang memproses export data...*",
         parse_mode=ParseMode.MARKDOWN
     )
@@ -236,7 +267,7 @@ DAFTAR PRODUK:
         
         filename = f"produk_export_{waktu['tanggal'].replace('/', '')}_{waktu['jam'].replace(':', '')}.txt"
         
-        await update.message.reply_document(
+        await message.reply_document(
             document=txt_bytes,
             filename=filename,
             caption=(
@@ -251,10 +282,15 @@ DAFTAR PRODUK:
     except Exception as e:
         print(f"Error export TXT: {e}")
         await waiting_msg.delete()
-        await update.message.reply_text(
+        await message.reply_text(
             f"❌ *Gagal membuat file TXT*\nError: {str(e)[:100]}",
             parse_mode=ParseMode.MARKDOWN
         )
+    
+    # Tombol kembali setelah export
+    keyboard = [[InlineKeyboardButton("🏠 KEMBALI KE MENU", callback_data="kembali_ke_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await message.reply_text("Pilih menu:", reply_markup=reply_markup)
 
 # ===================== FUNGSI NOTIFIKASI DENGAN REMINDER =====================
 async def cek_expired_dengan_reminder(context: ContextTypes.DEFAULT_TYPE):
@@ -267,7 +303,6 @@ async def cek_expired_dengan_reminder(context: ContextTypes.DEFAULT_TYPE):
     menit_sekarang = waktu_wib.minute
     
     print(f"🔔 Cek expired: {waktu_wib.strftime('%Y-%m-%d %H:%M:%S')} WIB")
-    print(f"⏰ Sistem reminder aktif: Setiap 3 jam jika belum ditindaklanjuti")
     
     data = load_data()
     
@@ -275,7 +310,6 @@ async def cek_expired_dengan_reminder(context: ContextTypes.DEFAULT_TYPE):
     if jam_sekarang == 6 and menit_sekarang < 5:
         print("🔄 RESET HARIAN: Membersihkan status tindak lanjut")
         PRODUCT_ACTION_STATUS.clear()
-        # Simpan reset ke file
         try:
             with open(REMINDER_FILE, 'w') as f:
                 json.dump({}, f)
@@ -306,12 +340,10 @@ async def cek_expired_dengan_reminder(context: ContextTypes.DEFAULT_TYPE):
                         
                         if last_reminder is None:
                             kirim_reminder = True
-                            print(f"📢 First reminder untuk {produk['nama']}")
                         else:
                             selisih_jam = (waktu_wib - last_reminder).total_seconds() / 3600
                             if selisih_jam >= 3:
                                 kirim_reminder = True
-                                print(f"⏰ Reminder ke-{reminder_count + 1} untuk {produk['nama']}")
                         
                         if kirim_reminder:
                             keyboard = [
@@ -820,10 +852,8 @@ async def hapus_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Handle hapus dari notifikasi (format: hapus_produk_id)
     if query.data.startswith("hapus_") and len(query.data.split("_")) > 2:
-        # Format dari notifikasi: hapus_{produk_id}
         produk_id = "_".join(query.data.split("_")[1:])
         
-        # Cari produk di semua user (karena ini dari notifikasi)
         semua_data = load_data()
         ditemukan = False
         
@@ -902,7 +932,7 @@ async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===================== FITUR SUPERVISOR =====================
 async def menu_pintar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Menu yang menyesuaikan role user"""
+    """Menu yang menyesuaikan role user (dari command)"""
     user_id = update.effective_user.id
     
     keyboard = [
@@ -931,6 +961,45 @@ async def menu_pintar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = "👑 SUPERVISOR + PIC" if await cek_supervisor(user_id) else "👤 PIC"
     
     await update.message.reply_text(
+        f"🏪 *MONITORING EXPIRED PRO* 🏪\n\n"
+        f"🕒 *Waktu:* {waktu['jam']} WIB - {waktu['tanggal']}\n"
+        f"{role}\n\n"
+        f"Pilih menu di bawah:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def menu_pintar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Menu yang menyesuaikan role user (dipanggil dari callback)"""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    
+    keyboard = [
+        [InlineKeyboardButton("📦 TAMBAH PRODUK", callback_data="tambah_produk")],
+        [InlineKeyboardButton("📋 PRODUK SAYA", callback_data="lihat_produk")],
+        [InlineKeyboardButton("📊 STATISTIK SAYA", callback_data="statistik")],
+    ]
+    
+    if await cek_supervisor(user_id):
+        keyboard.extend([
+            [InlineKeyboardButton("👑 SEMUA PRODUK", callback_data="lihat_semua_produk")],
+            [InlineKeyboardButton("📊 STATISTIK SEMUA", callback_data="statistik_semua")],
+        ])
+    
+    keyboard.extend([
+        [InlineKeyboardButton("📍 CEK LOKASI", callback_data="cek_lokasi")],
+        [InlineKeyboardButton("📄 EXPORT CSV", callback_data="export_csv")],
+        [InlineKeyboardButton("📝 EXPORT TXT", callback_data="export_txt")],
+        [InlineKeyboardButton("❓ BANTUAN", callback_data="bantuan")],
+        [InlineKeyboardButton("🗑 HAPUS PRODUK", callback_data="hapus_produk")],
+    ])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    waktu = format_waktu_wib()
+    role = "👑 SUPERVISOR + PIC" if await cek_supervisor(user_id) else "👤 PIC"
+    
+    await query.edit_message_text(
         f"🏪 *MONITORING EXPIRED PRO* 🏪\n\n"
         f"🕒 *Waktu:* {waktu['jam']} WIB - {waktu['tanggal']}\n"
         f"{role}\n\n"
@@ -1128,6 +1197,8 @@ def main():
     app.add_handler(CommandHandler('semua', lihat_semua_produk))
     app.add_handler(CommandHandler('stat_all', statistik_semua))
     app.add_handler(tambah_conv)
+    
+    # Callback query handler harus di paling akhir
     app.add_handler(CallbackQueryHandler(button_callback))
     
     # Handler foto
@@ -1195,7 +1266,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await bantuan(update, context)
     
     elif query.data == "kembali_ke_menu":
-        await menu_pintar(update, context)
+        await menu_pintar_callback(update, context)
+        return ConversationHandler.END
     
     elif query.data == "lihat_semua_produk":
         await lihat_semua_produk(update, context)
