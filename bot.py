@@ -12,7 +12,7 @@ from telegram.ext import (
     filters,
 )
 
-TOKEN = os.getenv("8590161595:AAFQ2dSjsi_dKr61lvicnGkE2EAwMsusSCw")
+TOKEN = os.getenv("8590161595:AAH5wt-4GDDKHexyWzNwAqKD6qmJAcVDrEc")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 LOKASI, PRODUK, EXPIRED, PIC = range(4)
@@ -156,3 +156,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
