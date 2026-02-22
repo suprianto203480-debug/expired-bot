@@ -1,5 +1,5 @@
 import os
-import pandas as pd
+import csv
 import psycopg2
 from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup
@@ -12,33 +12,31 @@ from telegram.ext import (
     filters,
 )
 
-# Ambil dari environment variable (JANGAN hardcode!)
-TOKEN = os.getenv("BOT_TOKEN")  # Set BOT_TOKEN di environment
+# Ambil dari environment variable
+TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Cek token tersedia
 if not TOKEN:
-    raise ValueError("BOT_TOKEN tidak ditemukan di environment variable!")
+    raise ValueError("❌ BOT_TOKEN tidak ditemukan!")
 if not DATABASE_URL:
-    raise ValueError("DATABASE_URL tidak ditemukan di environment variable!")
+    raise ValueError("❌ DATABASE_URL tidak ditemukan!")
 
 LOKASI, PRODUK, EXPIRED, PIC = range(4)
 
 # ================= DATABASE =================
 
 def get_connection():
-    """Membuat koneksi database dengan error handling"""
+    """Membuat koneksi database"""
     try:
         return psycopg2.connect(DATABASE_URL)
     except Exception as e:
-        print(f"Error koneksi database: {e}")
+        print(f"❌ Error koneksi database: {e}")
         return None
 
 def create_table():
     """Membuat tabel jika belum ada"""
     conn = get_connection()
     if not conn:
-        print("Gagal konek ke database untuk create table")
         return
     
     try:
@@ -56,17 +54,16 @@ def create_table():
         """)
         conn.commit()
         cur.close()
-        print("Tabel berhasil dibuat/dicek")
+        print("✅ Tabel berhasil dibuat/dicek")
     except Exception as e:
-        print(f"Error create table: {e}")
+        print(f"❌ Error create table: {e}")
     finally:
         conn.close()
 
 def save_to_db(data):
-    """Menyimpan data ke database dengan error handling"""
+    """Menyimpan data ke database"""
     conn = get_connection()
     if not conn:
-        print("Gagal konek ke database untuk save")
         return False
     
     try:
@@ -87,42 +84,69 @@ def save_to_db(data):
         cur.close()
         return True
     except Exception as e:
-        print(f"Error save to db: {e}")
+        print(f"❌ Error save to db: {e}")
         return False
     finally:
         conn.close()
 
-# ================= EXCEL =================
+# ================= CSV PRODUK =================
 
 def load_produk_master():
-    """Load produk master dengan error handling"""
+    """Load produk dari CSV"""
+    produk_dict = {}
     try:
-        if not os.path.exists("produk_master.xls"):
-            print("File produk_master.xls tidak ditemukan!")
-            return None
+        # Cek file existence
+        if not os.path.exists("produk_master.csv"):
+            print("❌ File produk_master.csv TIDAK DITEMUKAN!")
+            print(f"📁 Current directory: {os.getcwd()}")
+            print(f"📂 SEMUA FILE: {os.listdir('.')}")
+            return {}
+        
+        print("✅ File produk_master.csv DITEMUKAN")
+        with open('produk_master.csv', 'r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
             
-        df = pd.read_excel("produk_master.xls")
-        df.columns = df.columns.str.strip()
-        df["UPC"] = df["UPC"].astype(str).str.strip()
-        return df
+            # Cek header
+            if not reader.fieldnames:
+                print("❌ Header CSV tidak ditemukan!")
+                return {}
+            
+            print(f"📋 Header CSV: {reader.fieldnames}")
+            
+            row_count = 0
+            for row in reader:
+                upc = row['UPC'].strip()
+                nama = row['SKU Desc'].strip()
+                produk_dict[upc] = nama
+                row_count += 1
+                if row_count <= 3:
+                    print(f"  ✅ Contoh {row_count}: UPC='{upc}' -> '{nama}'")
+        
+        print(f"📊 TOTAL: {len(produk_dict)} produk berhasil di-load")
+        return produk_dict
+        
     except Exception as e:
-        print(f"Error load produk master: {e}")
-        return None
+        print(f"❌ ERROR DETAIL: {type(e).__name__}: {e}")
+        return {}
 
 def cari_produk(upc):
     """Mencari produk berdasarkan UPC"""
-    df = load_produk_master()
-    if df is None or df.empty:
+    upc_str = str(upc).strip()
+    print(f"🔍 MENCARI UPC: '{upc_str}'")
+    
+    produk_dict = load_produk_master()
+    
+    if not produk_dict:
+        print("❌ Database produk kosong!")
         return None
     
-    try:
-        hasil = df[df["UPC"] == str(upc).strip()]
-        if not hasil.empty:
-            return hasil.iloc[0]["SKU Desc"]
-    except Exception as e:
-        print(f"Error cari produk: {e}")
-    
-    return None
+    if upc_str in produk_dict:
+        print(f"✅ Ditemukan: {produk_dict[upc_str]}")
+        return produk_dict[upc_str]
+    else:
+        print(f"❌ UPC '{upc_str}' tidak ditemukan")
+        print(f"📋 Sample UPC di DB: {list(produk_dict.keys())[:5]}")
+        return None
 
 # ================= BOT FLOW =================
 
@@ -173,7 +197,7 @@ async def expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["expired"] = expired_date
 
     # Keyboard PIC
-    keyboard = [["Andi"], ["Budi"], ["Siti"], ["Lainnya"]]
+    keyboard = [["Andi"], ["Budi"], ["Siti"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
     await update.message.reply_text("👤 Pilih PIC:", reply_markup=reply_markup)
@@ -206,20 +230,24 @@ async def pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Dibataalkan. Ketik /start untuk memulai lagi.")
+    await update.message.reply_text("❌ Dibatalkan. Ketik /start untuk memulai lagi.")
     return ConversationHandler.END
 
 # ================= MAIN =================
 
 def main():
-    print("Memulai bot...")
+    print("🚀 Memulai bot...")
     
     # Buat tabel database
     create_table()
     
-    # Cek file produk master
-    if not os.path.exists("produk_master.xls"):
-        print("⚠️ PERINGATAN: File produk_master.xls tidak ditemukan!")
+    # Test load produk
+    print("📊 Test load produk master...")
+    produk = load_produk_master()
+    if produk:
+        print(f"✅ Siap! {len(produk)} produk tersedia")
+    else:
+        print("⚠️ PERINGATAN: Tidak ada produk!")
 
     # Buat aplikasi bot
     app = ApplicationBuilder().token(TOKEN).build()
@@ -238,7 +266,7 @@ def main():
 
     app.add_handler(conv_handler)
     
-    print("Bot started. Press Ctrl+C to stop.")
+    print("✅ Bot started. Press Ctrl+C to stop.")
     app.run_polling()
 
 if __name__ == "__main__":
