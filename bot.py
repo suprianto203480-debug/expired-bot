@@ -12,7 +12,7 @@ from telegram.ext import (
     filters,
 )
 
-# Ambil dari environment variable
+# ================= KONFIGURASI =================
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -21,10 +21,10 @@ if not TOKEN:
 if not DATABASE_URL:
     raise ValueError("❌ DATABASE_URL tidak ditemukan!")
 
+# State untuk ConversationHandler
 LOKASI, PRODUK, EXPIRED, PIC = range(4)
 
 # ================= DATABASE =================
-
 def get_connection():
     """Membuat koneksi database"""
     try:
@@ -90,16 +90,15 @@ def save_to_db(data):
         conn.close()
 
 # ================= CSV PRODUK =================
-
-def load_produk_master():
-    """Load produk dari CSV"""
+def load_produk_dari_csv():
+    """Load produk dari file CSV"""
     produk_dict = {}
     try:
-        # Cek file existence
+        # Cek apakah file ada
         if not os.path.exists("produk_master.csv"):
             print("❌ File produk_master.csv TIDAK DITEMUKAN!")
             print(f"📁 Current directory: {os.getcwd()}")
-            print(f"📂 SEMUA FILE: {os.listdir('.')}")
+            print(f"📂 Files: {os.listdir('.')}")
             return {}
         
         print("✅ File produk_master.csv DITEMUKAN")
@@ -113,53 +112,49 @@ def load_produk_master():
             
             print(f"📋 Header CSV: {reader.fieldnames}")
             
-            row_count = 0
+            # Baca setiap baris
             for row in reader:
                 upc = row['UPC'].strip()
                 nama = row['SKU Desc'].strip()
                 produk_dict[upc] = nama
-                row_count += 1
-                if row_count <= 3:
-                    print(f"  ✅ Contoh {row_count}: UPC='{upc}' -> '{nama}'")
+                print(f"  ✅ Load: {upc} -> {nama}")
         
         print(f"📊 TOTAL: {len(produk_dict)} produk berhasil di-load")
         return produk_dict
         
     except Exception as e:
-        print(f"❌ ERROR DETAIL: {type(e).__name__}: {e}")
+        print(f"❌ Error baca CSV: {type(e).__name__}: {e}")
         return {}
 
 def cari_produk(upc):
     """Mencari produk berdasarkan UPC"""
     upc_str = str(upc).strip()
-    print(f"🔍 MENCARI UPC: '{upc_str}'")
+    print(f"🔍 Mencari UPC: '{upc_str}'")
     
-    produk_dict = load_produk_master()
-    
-    if not produk_dict:
-        print("❌ Database produk kosong!")
-        return None
+    produk_dict = load_produk_dari_csv()
     
     if upc_str in produk_dict:
-        print(f"✅ Ditemukan: {produk_dict[upc_str]}")
-        return produk_dict[upc_str]
+        nama = produk_dict[upc_str]
+        print(f"✅ Ditemukan: {nama}")
+        return nama
     else:
         print(f"❌ UPC '{upc_str}' tidak ditemukan")
-        print(f"📋 Sample UPC di DB: {list(produk_dict.keys())[:5]}")
         return None
 
-# ================= BOT FLOW =================
-
+# ================= HANDLER BOT =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk perintah /start"""
     await update.message.reply_text("📍 Scan / Input Lokasi:")
     return LOKASI
 
-async def lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def lokasi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk input lokasi"""
     context.user_data["lokasi"] = update.message.text
     await update.message.reply_text("📦 Scan Barcode Produk:")
     return PRODUK
 
-async def produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def produk_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk input produk/UPC"""
     upc = update.message.text.strip()
     nama_produk = cari_produk(upc)
 
@@ -181,7 +176,8 @@ async def produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return EXPIRED
 
-async def expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def expired_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk input tanggal expired"""
     text = update.message.text.strip()
     
     try:
@@ -196,14 +192,15 @@ async def expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["expired"] = expired_date
 
-    # Keyboard PIC
+    # Keyboard untuk PIC
     keyboard = [["Andi"], ["Budi"], ["Siti"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
 
     await update.message.reply_text("👤 Pilih PIC:", reply_markup=reply_markup)
     return PIC
 
-async def pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def pic_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk input PIC"""
     context.user_data["pic"] = update.message.text
     data = context.user_data
 
@@ -218,55 +215,65 @@ async def pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔢 UPC: {data['upc']}\n"
             f"📅 Expired: {data['expired']}\n"
             f"👤 PIC: {data['pic']}\n\n"
-            f"Ketik /start untuk input baru"
+            f"Ketik /start untuk input baru",
+            reply_markup=ReplyKeyboardMarkup.remove_keyboard()
         )
     else:
         await update.message.reply_text(
             "❌ GAGAL menyimpan ke database!\n"
             "Hubungi administrator.\n\n"
-            "Ketik /start untuk coba lagi"
+            "Ketik /start untuk coba lagi",
+            reply_markup=ReplyKeyboardMarkup.remove_keyboard()
         )
 
     return ConversationHandler.END
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Dibatalkan. Ketik /start untuk memulai lagi.")
+async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk perintah /cancel"""
+    await update.message.reply_text(
+        "❌ Dibatalkan. Ketik /start untuk memulai lagi.",
+        reply_markup=ReplyKeyboardMarkup.remove_keyboard()
+    )
     return ConversationHandler.END
 
 # ================= MAIN =================
-
 def main():
     print("🚀 Memulai bot...")
     
     # Buat tabel database
     create_table()
     
-    # Test load produk
+    # Test load produk (untuk debug)
     print("📊 Test load produk master...")
-    produk = load_produk_master()
+    produk = load_produk_dari_csv()
     if produk:
         print(f"✅ Siap! {len(produk)} produk tersedia")
+        # Tampilkan 3 contoh produk
+        contoh = list(produk.items())[:3]
+        for upc, nama in contoh:
+            print(f"   📦 {upc}: {nama}")
     else:
-        print("⚠️ PERINGATAN: Tidak ada produk!")
+        print("⚠️ PERINGATAN: Tidak ada produk dalam database!")
 
     # Buat aplikasi bot
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Conversation handler
+    # Buat conversation handler
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            LOKASI: [MessageHandler(filters.TEXT & ~filters.COMMAND, lokasi)],
-            PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, produk)],
-            EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, expired)],
-            PIC: [MessageHandler(filters.TEXT & ~filters.COMMAND, pic)],
+            LOKASI: [MessageHandler(filters.TEXT & ~filters.COMMAND, lokasi_handler)],
+            PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, produk_handler)],
+            EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, expired_handler)],
+            PIC: [MessageHandler(filters.TEXT & ~filters.COMMAND, pic_handler)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[CommandHandler("cancel", cancel_handler)],
     )
 
+    # Tambahkan handler ke aplikasi
     app.add_handler(conv_handler)
     
-    print("✅ Bot started. Press Ctrl+C to stop.")
+    print("✅ Bot started! Menunggu pesan...")
     app.run_polling()
 
 if __name__ == "__main__":
