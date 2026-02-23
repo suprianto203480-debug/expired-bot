@@ -86,7 +86,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     # Base URL untuk webapp (ganti dengan URL Railway Anda)
-    BASE_URL = "https://your-app.railway.app"  # GANTI DENGAN URL RAILWAY ANDA
+    BASE_URL = "BASE_URL = "https://expired-bot-production.up.railway.app"  # GANTI DENGAN URL RAILWAY ANDA
     
     # Buat keyboard dengan tombol WebApp
     keyboard = [
@@ -303,3 +303,4 @@ if __name__ == '__main__':
     
     # Jalankan bot di thread utama
     run_bot()
+
