@@ -1,280 +1,33 @@
 import os
-import csv
 import psycopg2
-from datetime import datetime
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ConversationHandler,
-    ContextTypes,
-    filters,
-)
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# ================= KONFIGURASI =================
+# ============= KONFIGURASI =============
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+# =======================================
 
-if not TOKEN:
-    raise ValueError("❌ BOT_TOKEN tidak ditemukan!")
-if not DATABASE_URL:
-    raise ValueError("❌ DATABASE_URL tidak ditemukan!")
+# Setup logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# State untuk ConversationHandler
-LOKASI, PRODUK, EXPIRED, PIC = range(4)
+def get_db_connection():
+    """Membuat koneksi ke PostgreSQL Railway"""
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
 
-# ================= DATABASE =================
-def get_connection():
-    """Membuat koneksi database"""
-    try:
-        return psycopg2.connect(DATABASE_URL)
-    except Exception as e:
-        print(f"❌ Error koneksi database: {e}")
-        return None
+# Test koneksi database
+try:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products")
+    total = cursor.fetchone()[0]
+    print(f"✅ Database terhubung! Total {total} produk")
+    conn.close()
+except Exception as e:
+    print(f"❌ Gagal konek database: {e}")
+    total = 0
 
-def create_table():
-    """Membuat tabel jika belum ada"""
-    conn = get_connection()
-    if not conn:
-        return
-    
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS expired_logs (
-                id SERIAL PRIMARY KEY,
-                tanggal_input TIMESTAMP,
-                lokasi TEXT,
-                upc TEXT,
-                nama_produk TEXT,
-                expired_date DATE,
-                pic TEXT
-            )
-        """)
-        conn.commit()
-        cur.close()
-        print("✅ Tabel berhasil dibuat/dicek")
-    except Exception as e:
-        print(f"❌ Error create table: {e}")
-    finally:
-        conn.close()
-
-def save_to_db(data):
-    """Menyimpan data ke database"""
-    conn = get_connection()
-    if not conn:
-        return False
-    
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO expired_logs
-            (tanggal_input, lokasi, upc, nama_produk, expired_date, pic)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (
-            datetime.now(),
-            data["lokasi"],
-            data["upc"],
-            data["nama_produk"],
-            data["expired"],
-            data["pic"],
-        ))
-        conn.commit()
-        cur.close()
-        return True
-    except Exception as e:
-        print(f"❌ Error save to db: {e}")
-        return False
-    finally:
-        conn.close()
-
-# ================= CSV PRODUK =================
-def load_produk_dari_csv():
-    """Load produk dari file CSV"""
-    produk_dict = {}
-    try:
-        # Cek apakah file ada
-        if not os.path.exists("produk_master.csv"):
-            print("❌ File produk_master.csv TIDAK DITEMUKAN!")
-            print(f"📁 Current directory: {os.getcwd()}")
-            print(f"📂 Files: {os.listdir('.')}")
-            return {}
-        
-        print("✅ File produk_master.csv DITEMUKAN")
-        with open('produk_master.csv', 'r', encoding='utf-8') as file:
-            reader = csv.DictReader(file)
-            
-            # Cek header
-            if not reader.fieldnames:
-                print("❌ Header CSV tidak ditemukan!")
-                return {}
-            
-            print(f"📋 Header CSV: {reader.fieldnames}")
-            
-            # Baca setiap baris
-            for row in reader:
-                upc = row['UPC'].strip()
-                nama = row['SKU Desc'].strip()
-                produk_dict[upc] = nama
-                print(f"  ✅ Load: {upc} -> {nama}")
-        
-        print(f"📊 TOTAL: {len(produk_dict)} produk berhasil di-load")
-        return produk_dict
-        
-    except Exception as e:
-        print(f"❌ Error baca CSV: {type(e).__name__}: {e}")
-        return {}
-
-def cari_produk(upc):
-    """Mencari produk berdasarkan UPC"""
-    upc_str = str(upc).strip()
-    print(f"🔍 Mencari UPC: '{upc_str}'")
-    
-    produk_dict = load_produk_dari_csv()
-    
-    if upc_str in produk_dict:
-        nama = produk_dict[upc_str]
-        print(f"✅ Ditemukan: {nama}")
-        return nama
-    else:
-        print(f"❌ UPC '{upc_str}' tidak ditemukan")
-        return None
-
-# ================= HANDLER BOT =================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk perintah /start"""
-    await update.message.reply_text("📍 Scan / Input Lokasi:")
-    return LOKASI
-
-async def lokasi_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk input lokasi"""
-    context.user_data["lokasi"] = update.message.text
-    await update.message.reply_text("📦 Scan Barcode Produk:")
-    return PRODUK
-
-async def produk_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk input produk/UPC"""
-    upc = update.message.text.strip()
-    nama_produk = cari_produk(upc)
-
-    if not nama_produk:
-        await update.message.reply_text(
-            "❌ Produk tidak ditemukan!\n"
-            "Coba scan ulang atau ketik /start untuk memulai lagi."
-        )
-        return PRODUK
-
-    context.user_data["upc"] = upc
-    context.user_data["nama_produk"] = nama_produk
-
-    await update.message.reply_text(
-        f"✅ Produk Ditemukan:\n"
-        f"📦 {nama_produk}\n\n"
-        f"📅 Input Tanggal Expired (YYYY-MM-DD):\n"
-        f"Contoh: 2024-12-31"
-    )
-    return EXPIRED
-
-async def expired_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk input tanggal expired"""
-    text = update.message.text.strip()
-    
-    try:
-        expired_date = datetime.strptime(text, "%Y-%m-%d").date()
-    except ValueError:
-        await update.message.reply_text(
-            "❌ Format salah!\n"
-            "Gunakan format YYYY-MM-DD\n"
-            "Contoh: 2024-12-31"
-        )
-        return EXPIRED
-
-    context.user_data["expired"] = expired_date
-
-    # Keyboard untuk PIC
-    keyboard = [["Andi"], ["Budi"], ["Siti"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-
-    await update.message.reply_text("👤 Pilih PIC:", reply_markup=reply_markup)
-    return PIC
-
-async def pic_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk input PIC"""
-    context.user_data["pic"] = update.message.text
-    data = context.user_data
-
-    # Simpan ke database
-    success = save_to_db(data)
-
-    if success:
-        await update.message.reply_text(
-            f"✅ DATA BERHASIL TERSIMPAN\n\n"
-            f"📍 Lokasi: {data['lokasi']}\n"
-            f"📦 Produk: {data['nama_produk']}\n"
-            f"🔢 UPC: {data['upc']}\n"
-            f"📅 Expired: {data['expired']}\n"
-            f"👤 PIC: {data['pic']}\n\n"
-            f"Ketik /start untuk input baru",
-            reply_markup=ReplyKeyboardMarkup.remove_keyboard()
-        )
-    else:
-        await update.message.reply_text(
-            "❌ GAGAL menyimpan ke database!\n"
-            "Hubungi administrator.\n\n"
-            "Ketik /start untuk coba lagi",
-            reply_markup=ReplyKeyboardMarkup.remove_keyboard()
-        )
-
-    return ConversationHandler.END
-
-async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk perintah /cancel"""
-    await update.message.reply_text(
-        "❌ Dibatalkan. Ketik /start untuk memulai lagi.",
-        reply_markup=ReplyKeyboardMarkup.remove_keyboard()
-    )
-    return ConversationHandler.END
-
-# ================= MAIN =================
-def main():
-    print("🚀 Memulai bot...")
-    
-    # Buat tabel database
-    create_table()
-    
-    # Test load produk (untuk debug)
-    print("📊 Test load produk master...")
-    produk = load_produk_dari_csv()
-    if produk:
-        print(f"✅ Siap! {len(produk)} produk tersedia")
-        # Tampilkan 3 contoh produk
-        contoh = list(produk.items())[:3]
-        for upc, nama in contoh:
-            print(f"   📦 {upc}: {nama}")
-    else:
-        print("⚠️ PERINGATAN: Tidak ada produk dalam database!")
-
-    # Buat aplikasi bot
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    # Buat conversation handler
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            LOKASI: [MessageHandler(filters.TEXT & ~filters.COMMAND, lokasi_handler)],
-            PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, produk_handler)],
-            EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, expired_handler)],
-            PIC: [MessageHandler(filters.TEXT & ~filters.COMMAND, pic_handler)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel_handler)],
-    )
-
-    # Tambahkan handler ke aplikasi
-    app.add_handler(conv_handler)
-    
-    print("✅ Bot started! Menunggu pesan...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+# ... (sisa kode bot Anda) ...
