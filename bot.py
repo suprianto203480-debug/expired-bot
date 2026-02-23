@@ -1,10 +1,10 @@
 import os
 import psycopg2
 import logging
+import threading
 from flask import Flask, request, jsonify, send_from_directory
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-import threading
 
 # ============= KONFIGURASI =============
 TOKEN = os.getenv("BOT_TOKEN")
@@ -85,8 +85,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk perintah /start dengan WebApp"""
     user = update.effective_user
     
-    # Base URL untuk webapp (ganti dengan URL Railway Anda)
-    BASE_URL = "BASE_URL = "https://expired-bot-production.up.railway.app"  # GANTI DENGAN URL RAILWAY ANDA
+    # Base URL untuk webapp - PASTIKAN INI BENAR
+    BASE_URL = "https://expired-bot-production.up.railway.app"
     
     # Buat keyboard dengan tombol WebApp
     keyboard = [
@@ -224,6 +224,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif query.data == 'menu':
+        # Panggil start dengan cara yang benar
         await start(query, context)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -243,6 +244,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (f'%{text}%', f'%{text}%', f'%{text}%')
         )
         results = cursor.fetchall()
+        conn.close()
         
         if results:
             msg = f"🔍 *Hasil pencarian:* `{text}`\n\n"
@@ -254,7 +256,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['state'] = None
     
     else:
-        # Cek sebagai barcode
+        # Cek sebagai barcode dulu
         cursor.execute("SELECT * FROM products WHERE upc = %s", (text,))
         result = cursor.fetchone()
         
@@ -277,8 +279,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             else:
                 await update.message.reply_text("❌ Tidak ditemukan. Gunakan /start")
-    
-    conn.close()
+        
+        conn.close()
 
 def run_bot():
     """Menjalankan bot Telegram"""
@@ -296,11 +298,11 @@ def run_flask():
     print(f"🌐 WebApp berjalan di port {PORT}")
     app_flask.run(host='0.0.0.0', port=PORT)
 
-if __name__ == '__main__':
+# ============= MAIN =============
+if __name__ == "__main__":
     # Jalankan Flask di thread terpisah
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     
     # Jalankan bot di thread utama
     run_bot()
-
