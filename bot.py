@@ -1,6 +1,6 @@
 import os
 import logging
-import pandas as pd
+import psycopg2
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -10,60 +10,90 @@ from telegram.ext import (
     filters
 )
 
-# ================== CONFIG ==================
-TOKEN = os.getenv("BOT_TOKEN")  # Ambil dari Railway ENV
-DATA_FILE = "data.xlsx"
+# ================= CONFIG =================
+TOKEN = os.getenv("BOT_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 
-# ================== LOAD DATA ==================
-def load_data():
-    try:
-        df = pd.read_excel(DATA_FILE)
-        return df
-    except:
-        return None
+# ================= DATABASE FUNCTION =================
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
 
-# ================== COMMAND START ==================
+# ================= START COMMAND =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Halo!\n\n"
-        "Silakan kirim atau scan barcode untuk mencari produk."
+        "Silakan kirim:\n"
+        "- UPC (barcode panjang)\n"
+        "- SKU (kode pendek)\n\n"
+        "Bot akan mencari di database 🔎"
     )
 
-# ================== SCAN BARCODE ==================
-async def scan_barcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    barcode = update.message.text.strip()
-    df = load_data()
+# ================= SCAN FUNCTION =================
+async def scan_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    input_code = update.message.text.strip()
 
-    if df is None:
-        await update.message.reply_text("⚠️ Database tidak ditemukan.")
+    if not input_code:
         return
 
-    result = df[df["UPC"].astype(str) == barcode]
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
 
-    if result.empty:
-        await update.message.reply_text("❌ Produk tidak ditemukan.")
-    else:
-        row = result.iloc[0]
-        await update.message.reply_text(
-            f"✅ Produk ditemukan:\n\n"
-            f"📦 Nama: {row['Nama Produk']}\n"
-            f"🏷 Harga: {row['Harga']}\n"
-            f"📍 Lokasi: {row['Lokasi']}"
-        )
+        # Query fleksibel (UPC atau SKU)
+        cur.execute("""
+            SELECT dept, sku, deskripsi 
+            FROM products
+            WHERE upc::text = %s
+               OR sku::text = %s
+            LIMIT 1
+        """, (input_code, input_code))
 
-# ================== MAIN ==================
+        result = cur.fetchone()
+
+        if result:
+            dept, sku, deskripsi = result
+
+            # Simpan ke tabel scans
+            cur.execute("""
+                INSERT INTO scans (input_code, sku, deskripsi)
+                VALUES (%s, %s, %s)
+            """, (input_code, sku, deskripsi))
+
+            conn.commit()
+
+            await update.message.reply_text(
+                f"✅ Produk ditemukan:\n\n"
+                f"📦 {deskripsi}\n"
+                f"🏷 SKU: {sku}\n"
+                f"🏬 Dept: {dept}"
+            )
+        else:
+            await update.message.reply_text("❌ Produk tidak ditemukan.")
+
+        cur.close()
+        conn.close()
+
+    except Exception as e:
+        print("DATABASE ERROR:", e)
+        await update.message.reply_text("⚠️ Terjadi kesalahan koneksi database.")
+
+# ================= MAIN =================
 def main():
+    if not TOKEN:
+        print("BOT_TOKEN tidak ditemukan!")
+        return
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, scan_barcode))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, scan_product))
 
-    print("Bot berjalan...")
+    print("🚀 Bot berjalan dengan PostgreSQL...")
     app.run_polling()
 
 if __name__ == "__main__":
