@@ -1,7 +1,5 @@
 import os
-import logging
 import psycopg2
-import psycopg2.extras
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -15,76 +13,81 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-logging.basicConfig(level=logging.INFO)
-
-if not TOKEN:
-    raise ValueError("BOT_TOKEN tidak ditemukan di Environment Variables!")
-
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL tidak ditemukan di Environment Variables!")
-
-# ================= DATABASE =================
+# ================= DATABASE FUNCTION =================
 def get_connection():
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
+    return psycopg2.connect(DATABASE_URL)
 
-# ================= START =================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Halo!\n\n"
-        "Kirim UPC atau SKU untuk mencari produk."
-    )
-
-# ================= SCAN =================
-async def scan_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    input_code = update.message.text.strip()
-
+def search_product(keyword):
     try:
         conn = get_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur = conn.cursor()
 
-        cur.execute("""
-            SELECT dept, sku, deskripsi
-            FROM products
-            WHERE upc::text = %s
-               OR sku::text = %s
-            LIMIT 1
-        """, (input_code, input_code))
+        query = """
+        SELECT sku, upc, nama_produk, expired_date, lokasi
+        FROM products
+        WHERE 
+            sku ILIKE %s OR
+            upc ILIKE %s OR
+            nama_produk ILIKE %s
+        LIMIT 10
+        """
 
-        product = cur.fetchone()
+        value = f"%{keyword}%"
 
-        if product:
-            # Simpan history
-            cur.execute("""
-                INSERT INTO scans (input_code, sku, deskripsi)
-                VALUES (%s, %s, %s)
-            """, (input_code, product["sku"], product["deskripsi"]))
-
-            conn.commit()
-
-            await update.message.reply_text(
-                f"✅ Produk ditemukan:\n\n"
-                f"📦 {product['deskripsi']}\n"
-                f"🏷 SKU: {product['sku']}\n"
-                f"🏬 Dept: {product['dept']}"
-            )
-        else:
-            await update.message.reply_text("❌ Produk tidak ditemukan.")
+        cur.execute(query, (value, value, value))
+        rows = cur.fetchall()
 
         cur.close()
         conn.close()
 
+        return rows
+
     except Exception as e:
-        print("ERROR DATABASE:", e)
+        print("Database Error:", e)
+        return None
+
+# ================= BOT HANDLER =================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 Halo!\n\nKirim UPC / SKU / Nama produk untuk mencari data."
+    )
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyword = update.message.text.strip()
+
+    results = search_product(keyword)
+
+    if results is None:
         await update.message.reply_text("⚠️ Database error.")
+        return
+
+    if len(results) == 0:
+        await update.message.reply_text("❌ Produk tidak ditemukan.")
+        return
+
+    response = "🔎 HASIL PENCARIAN:\n\n"
+
+    for row in results:
+        sku, upc, nama, expired, lokasi = row
+        response += (
+            f"📦 Nama: {nama}\n"
+            f"🔖 SKU: {sku}\n"
+            f"🏷 UPC: {upc}\n"
+            f"📅 Expired: {expired}\n"
+            f"📍 Lokasi: {lokasi}\n"
+            f"----------------------\n"
+        )
+
+    await update.message.reply_text(response)
 
 # ================= MAIN =================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, scan_product))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🚀 Bot running...")
+    print("Bot berjalan...")
     app.run_polling()
 
 if __name__ == "__main__":
