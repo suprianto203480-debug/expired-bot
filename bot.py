@@ -1,90 +1,70 @@
 import os
-import threading
-import psycopg2
-from flask import Flask, send_from_directory
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import logging
+import pandas as pd
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
+)
 
-# ================= CONFIG =================
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-DATABASE_URL = os.environ.get("DATABASE_URL")
-WEBAPP_URL = os.environ.get("WEBAPP_URL")
+# ================== CONFIG ==================
+TOKEN = os.getenv("BOT_TOKEN")  # Ambil dari Railway ENV
+DATA_FILE = "data.xlsx"
 
-# ================= DATABASE =================
-def get_connection():
-    return psycopg2.connect(DATABASE_URL)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 
-def init_db():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS scans (
-            id SERIAL PRIMARY KEY,
-            barcode TEXT,
-            scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
+# ================== LOAD DATA ==================
+def load_data():
+    try:
+        df = pd.read_excel(DATA_FILE)
+        return df
+    except:
+        return None
 
-# ================= FLASK WEB SERVER =================
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot Running 🚀"
-
-@app.route("/scanner")
-def scanner():
-    return send_from_directory(".", "scanner.html")
-
-def run_web():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
-
-# ================= TELEGRAM BOT =================
+# ================== COMMAND START ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [KeyboardButton(
-            text="📷 Scan Barcode",
-            web_app=WebAppInfo(url=WEBAPP_URL)
-        )]
-    ]
-
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
     await update.message.reply_text(
-        "Silakan scan barcode:",
-        reply_markup=reply_markup
+        "👋 Halo!\n\n"
+        "Silakan kirim atau scan barcode untuk mencari produk."
     )
 
-async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.web_app_data:
-        barcode = update.message.web_app_data.data
+# ================== SCAN BARCODE ==================
+async def scan_barcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    barcode = update.message.text.strip()
+    df = load_data()
 
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO scans (barcode) VALUES (%s)", (barcode,))
-        conn.commit()
-        cur.close()
-        conn.close()
+    if df is None:
+        await update.message.reply_text("⚠️ Database tidak ditemukan.")
+        return
 
-        await update.message.reply_text(f"✅ Barcode diterima: {barcode}")
+    result = df[df["UPC"].astype(str) == barcode]
 
-def run_bot():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(
-        telegram.ext.MessageHandler(
-            telegram.ext.filters.StatusUpdate.WEB_APP_DATA,
-            handle_webapp_data
+    if result.empty:
+        await update.message.reply_text("❌ Produk tidak ditemukan.")
+    else:
+        row = result.iloc[0]
+        await update.message.reply_text(
+            f"✅ Produk ditemukan:\n\n"
+            f"📦 Nama: {row['Nama Produk']}\n"
+            f"🏷 Harga: {row['Harga']}\n"
+            f"📍 Lokasi: {row['Lokasi']}"
         )
-    )
-    application.run_polling()
 
-# ================= MAIN =================
+# ================== MAIN ==================
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, scan_barcode))
+
+    print("Bot berjalan...")
+    app.run_polling()
+
 if __name__ == "__main__":
-    init_db()
-    threading.Thread(target=run_web).start()
-    run_bot()
+    main()
