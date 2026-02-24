@@ -66,13 +66,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     response = "🔎 HASIL PENCARIAN:\n\n"
 
-   for row in results:
+  for row in results:
     dept, sku, deskripsi, upc = row
 
     response += (
         f"🏬 Dept: {dept}\n"
-        f"📦 Nama: {deskripsi}\n"
         f"🔖 SKU: {sku}\n"
+        f"📦 Nama: {deskripsi}\n"
         f"🏷 UPC: {upc}\n"
         f"----------------------\n"
     )
@@ -91,4 +91,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
