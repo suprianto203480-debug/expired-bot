@@ -13,7 +13,7 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# ================= DATABASE FUNCTION =================
+# ================= DATABASE =================
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
@@ -23,20 +23,19 @@ def search_product(keyword):
         cur = conn.cursor()
 
         query = """
-        SELECT sku, upc, nama_produk, expired_date, lokasi
+        SELECT dept, sku, deskripsi, upc
         FROM products
         WHERE 
-            sku ILIKE %s OR
-            upc ILIKE %s OR
-            nama_produk ILIKE %s
+            CAST(sku AS TEXT) ILIKE %s OR
+            CAST(upc AS TEXT) ILIKE %s OR
+            deskripsi ILIKE %s
         LIMIT 10
         """
 
         value = f"%{keyword}%"
-
         cur.execute(query, (value, value, value))
-        rows = cur.fetchall()
 
+        rows = cur.fetchall()
         cur.close()
         conn.close()
 
@@ -46,7 +45,7 @@ def search_product(keyword):
         print("Database Error:", e)
         return None
 
-# ================= BOT HANDLER =================
+# ================= HANDLER =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Halo!\n\nKirim UPC / SKU / Nama produk untuk mencari data."
@@ -68,13 +67,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = "🔎 HASIL PENCARIAN:\n\n"
 
     for row in results:
-        sku, upc, nama, expired, lokasi = row
+        dept, sku, deskripsi, upc = row
+
         response += (
-            f"📦 Nama: {nama}\n"
+            f"🏬 Dept: {dept}\n"
+            f"📦 Nama: {deskripsi}\n"
             f"🔖 SKU: {sku}\n"
             f"🏷 UPC: {upc}\n"
-            f"📅 Expired: {expired}\n"
-            f"📍 Lokasi: {lokasi}\n"
             f"----------------------\n"
         )
 
