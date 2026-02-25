@@ -383,7 +383,7 @@ if __name__=="__main__":
     app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"),export_bulanan))
     app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"),help_menu))
     app.add_handler(MessageHandler(filters.Regex("^🗑 Hapus Produk Expired$"), hapus_produk_expired))
-app.add_handler(CallbackQueryHandler(konfirmasi_hapus, pattern="^hapus_"))
+    app.add_handler(CallbackQueryHandler(konfirmasi_hapus, pattern="^hapus_"))
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
