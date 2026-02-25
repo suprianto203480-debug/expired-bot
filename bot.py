@@ -1,6 +1,11 @@
 import os
 import psycopg2
-from telegram import Update
+from telegram import (
+    Update,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    WebAppInfo
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -62,10 +67,27 @@ def search_product(keyword, dept_filter=None):
 
 # ================= COMMAND =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    keyboard = [
+        [KeyboardButton(
+            text="📷 Scan Item",
+            web_app=WebAppInfo(
+                url="https://ISI_URL_WEBAPP_NANTI"
+            )
+        )]
+    ]
+
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True
+    )
+
     await update.message.reply_text(
         "Halo.\n\n"
         "Kirim SKU, UPC, atau nama produk.\n"
-        "Gunakan format: dept:97 ayam"
+        "Atau klik tombol Scan Item.\n\n"
+        "Gunakan format: dept:97 ayam",
+        reply_markup=reply_markup
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -76,17 +98,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "atau\n"
         "ayam\n\n"
         "2. Filter dept:\n"
-        "dept:97 ayam"
+        "dept:97 ayam\n\n"
+        "3. Atau gunakan Scan Item"
     )
 
-# ================= MESSAGE =================
+# ================= HANDLE TEXT =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
     dept_filter = None
     keyword = text
 
-    # Cek filter dept
     if text.lower().startswith("dept:"):
         try:
             parts = text.split(" ", 1)
@@ -119,12 +141,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(response.strip())
 
+# ================= HANDLE WEBAPP DATA =================
+async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    upc = update.message.web_app_data.data
+
+    results = search_product(upc)
+
+    if results is None:
+        await update.message.reply_text("Database error.")
+        return
+
+    if len(results) == 0:
+        await update.message.reply_text("Produk tidak ditemukan.")
+        return
+
+    dept, sku, deskripsi, upc = results[0]
+
+    response = (
+        f"{sku} {deskripsi}\n"
+        f"UPC  : {upc}"
+    )
+
+    await update.message.reply_text(response)
+
 # ================= MAIN =================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_webapp_data))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Bot berjalan...")
