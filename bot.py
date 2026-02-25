@@ -149,9 +149,11 @@ def delete_expired_by_id(expired_id):
 
 def main_menu():
     keyboard = [
-        [KeyboardButton("➕ Input Produk"), KeyboardButton("📄 Export Harian")],
-        [KeyboardButton("📊 Rekap Bulanan CSV"), KeyboardButton("🗑 Hapus Produk Expired")],
-        [KeyboardButton("ℹ️ Help")]
+        ["➕ Input Produk"],
+        ["📄 Export Harian"],
+        ["📊 Rekap Bulanan CSV"],
+        ["🗑 Hapus Produk Expired"],
+        ["ℹ️ Help"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -390,5 +392,6 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
 
