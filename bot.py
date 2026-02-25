@@ -87,19 +87,23 @@ def get_today_expired():
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT l.nama_lokasi,p.sku,e.nama_produk,
-               e.upc,e.expired_date,e.pic
+        SELECT l.nama_lokasi,
+               p.sku,
+               e.nama_produk,
+               e.upc,
+               e.expired_date,
+               e.pic,
+               DATE(e.tanggal_input)
         FROM expired_logs e
-        LEFT JOIN locations l ON l.id::text=e.lokasi::text
-        LEFT JOIN products p ON p.upc::text=e.upc::text
-        WHERE DATE(e.tanggal_input)=CURRENT_DATE
-        ORDER BY l.nama_lokasi,p.sku
+        LEFT JOIN locations l ON l.id::text = e.lokasi::text
+        LEFT JOIN products p ON p.upc::text = e.upc::text
+        WHERE DATE(e.tanggal_input) = CURRENT_DATE
+        ORDER BY l.nama_lokasi, p.sku
     """)
     rows = cur.fetchall()
     cur.close()
     conn.close()
     return rows
-
 def get_monthly_report(year,month):
     conn = get_connection()
     cur = conn.cursor()
@@ -260,31 +264,48 @@ async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = get_today_expired()
+
     if not data:
         await update.message.reply_text("Tidak ada data input hari ini.")
         return
 
-    today=datetime.now().strftime("%Y-%m-%d")
-    filename=f"expired_{today}.txt"
+    today = datetime.now().strftime("%Y-%m-%d")
+    filename = f"expired_{today}.txt"
 
-    lines=[f"LAPORAN INPUT EXPIRED - {today}","="*50]
+    lines = [f"LAPORAN INPUT EXPIRED - {today}", "=" * 50]
 
     for row in data:
-        lokasi,sku,produk,upc,expired,pic=row
-        lines+= [
-            f"Lokasi : {lokasi}",
-            f"SKU    : {sku}",
-            f"Produk : {produk}",
-            f"UPC    : {upc}",
-            f"Expired: {expired}",
-            f"PIC    : {pic}",
-            "-"*50
+        lokasi, sku, produk, upc, expired, pic, input_date = row
+
+        # Hitung selisih hari expired
+        selisih = (expired - date.today()).days
+
+        if selisih < 0:
+            status = "⚠️ SUDAH EXPIRED"
+        elif selisih == 0:
+            status = "⚠️ HARI INI"
+        elif 1 <= selisih <= 7:
+            status = f"⚠️ H-{selisih}"
+        else:
+            status = ""
+
+        lines += [
+            f"Lokasi     : {lokasi}",
+            f"SKU        : {sku}",
+            f"Produk     : {produk}",
+            f"UPC        : {upc}",
+            f"Expired    : {expired} {status}",
+            f"PIC        : {pic}",
+            f"Input Date : {input_date}",
+            "-" * 50
         ]
 
-    with open(filename,"w",encoding="utf-8") as f:
+    with open(filename, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
-    with open(filename,"rb") as f:
+
+    with open(filename, "rb") as f:
         await update.message.reply_document(f)
+
     os.remove(filename)
 
 async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -339,3 +360,4 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
