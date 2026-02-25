@@ -63,25 +63,20 @@ def search_product(keyword, dept_filter=None):
 # ================= COMMAND =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Halo!\n\n"
-        "Kirim:\n"
-        "SKU / UPC / Nama produk\n\n"
-        "Atau gunakan format:\n"
-        "dept:97 ayam\n\n"
-        "Gunakan /help untuk bantuan."
+        "Halo.\n\n"
+        "Kirim SKU, UPC, atau nama produk.\n"
+        "Gunakan format: dept:97 ayam"
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📌 CARA PAKAI BOT:\n\n"
-        "1️⃣ Cari normal:\n"
+        "Cara pakai:\n\n"
+        "1. Cari normal:\n"
         "97236290\n"
         "atau\n"
         "ayam\n\n"
-        "2️⃣ Filter berdasarkan Dept:\n"
-        "dept:97 ayam\n\n"
-        "Format:\n"
-        "dept:<kode_dept> <kata_kunci>"
+        "2. Filter dept:\n"
+        "dept:97 ayam"
     )
 
 # ================= MESSAGE =================
@@ -91,43 +86,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dept_filter = None
     keyword = text
 
-    # Cek apakah pakai filter dept
+    # Cek filter dept
     if text.lower().startswith("dept:"):
         try:
             parts = text.split(" ", 1)
             dept_part = parts[0]
             keyword = parts[1]
-
             dept_filter = dept_part.replace("dept:", "").strip()
         except:
-            await update.message.reply_text("❌ Format salah. Contoh: dept:97 ayam")
+            await update.message.reply_text("Format salah. Contoh: dept:97 ayam")
             return
 
     results = search_product(keyword, dept_filter)
 
     if results is None:
-        await update.message.reply_text("⚠️ Database error.")
+        await update.message.reply_text("Database error.")
         return
 
     if len(results) == 0:
-        await update.message.reply_text("❌ Produk tidak ditemukan.")
+        await update.message.reply_text("Produk tidak ditemukan.")
         return
 
-    response = "🔎 HASIL PENCARIAN:\n\n"
+    response = ""
 
-    for i, row in enumerate(results, start=1):
+    for row in results:
         dept, sku, deskripsi, upc = row
 
         response += (
-            f"{i}️⃣\n"
-            f"🏬 Dept: {dept}\n"
-            f"🔖 SKU: {sku}\n"
-            f"📦 Nama: {deskripsi}\n"
-            f"🏷 UPC: {upc}\n"
-            f"----------------------\n"
+            f"{sku} {deskripsi}\n"
+            f"UPC  : {upc}\n\n"
         )
 
-    await update.message.reply_text(response)
+    await update.message.reply_text(response.strip())
 
 # ================= MAIN =================
 def main():
