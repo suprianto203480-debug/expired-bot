@@ -273,7 +273,14 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now().strftime("%Y-%m-%d")
     filename = f"expired_{today}.txt"
 
-    lines = [f"LAPORAN INPUT EXPIRED - {today}", "=" * 50]
+    lines = [
+        "=" * 60,
+        "LAPORAN DAILY CEK PRODUK MENDEKATI EXPIRED",
+        "DEPT            : DAIRY & FROZEN",
+        f"TANGGAL UPDATE  : {today}",
+        "=" * 60,
+        ""
+    ]
 
     for row in data:
         lokasi, sku, produk, upc, expired, pic, input_date = row
@@ -307,23 +314,6 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open(filename, "rb") as f:
         await update.message.reply_document(f)
 
-    os.remove(filename)
-
-async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    now=datetime.now()
-    data=get_monthly_report(now.year,now.month)
-    if not data:
-        await update.message.reply_text("Tidak ada data bulan ini.")
-        return
-
-    filename=f"rekap_{now.year}_{now.month}.csv"
-    with open(filename,"w",newline="",encoding="utf-8") as f:
-        writer=csv.writer(f)
-        writer.writerow(["Lokasi","SKU","Produk","UPC","Expired","PIC","Tanggal Input"])
-        writer.writerows(data)
-
-    with open(filename,"rb") as f:
-        await update.message.reply_document(f)
     os.remove(filename)
 
 # ================= MAIN =================
@@ -361,6 +351,7 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
 
 
