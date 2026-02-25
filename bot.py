@@ -22,7 +22,17 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-PILIH_LOKASI, PILIH_PIC, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED, TAMBAH_LAGI = range(6)
+(
+    PILIH_LOKASI,
+    PILIH_PIC,
+    CARI_PRODUK,
+    PILIH_PRODUK,
+    INPUT_EXPIRED,
+    TAMBAH_LAGI,
+    PILIH_EXPIRED,
+    AKSI_EXPIRED,
+    EDIT_TGL
+) = range(9)
 
 # ================= DATABASE =================
 
@@ -82,6 +92,41 @@ def save_expired(lokasi_id, upc, nama_produk, expired_date, pic):
     cur.close()
     conn.close()
 
+def get_expired_passed():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id,nama_produk,expired_date
+        FROM expired_logs
+        WHERE expired_date < CURRENT_DATE
+        ORDER BY expired_date ASC
+        LIMIT 20
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+def update_expired_date(log_id,new_date):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE expired_logs
+        SET expired_date=%s
+        WHERE id=%s
+    """,(new_date,log_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def delete_expired(log_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM expired_logs WHERE id=%s",(log_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
 def get_today_expired():
     conn = get_connection()
     cur = conn.cursor()
@@ -121,8 +166,9 @@ def get_monthly_report(year,month):
 
 def main_menu():
     keyboard = [
-        [KeyboardButton("➕ Input Produk"), KeyboardButton("📄 Export Harian")],
-        [KeyboardButton("📊 Rekap Bulanan CSV"), KeyboardButton("ℹ️ Help")]
+        [KeyboardButton("➕ Input Produk")],
+        [KeyboardButton("📄 Export Harian"), KeyboardButton("📊 Rekap Bulanan CSV")],
+        [KeyboardButton("✏️ Edit/Hapus Expired"), KeyboardButton("ℹ️ Help")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -138,24 +184,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
-async def help_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📌 MENU:\n"
-        "➕ Input Produk\n"
-        "📄 Export Harian\n"
-        "📊 Rekap Bulanan CSV",
-        reply_markup=main_menu()
-    )
-
 async def cancel_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text(
-        "✅ Selesai.",
-        reply_markup=main_menu()
-    )
+    await update.message.reply_text("✅ Selesai.", reply_markup=main_menu())
     return ConversationHandler.END
 
-# ================= INPUT FLOW =================
+# ================= INPUT PRODUK =================
 
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     locations = get_locations()
@@ -213,7 +247,7 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         datetime.strptime(update.message.text,"%Y-%m-%d")
     except:
-        await update.message.reply_text("Format salah. Gunakan YYYY-MM-DD")
+        await update.message.reply_text("Format salah.")
         return INPUT_EXPIRED
 
     p = context.user_data["produk"]
@@ -239,64 +273,66 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return TAMBAH_LAGI
 
 async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"Lokasi tetap ✔️\nPIC: {context.user_data['pic']}\n\n"
-        "Ketik SKU / Nama / UPC:"
-    )
+    await update.message.reply_text("Ketik SKU / Nama / UPC:")
     return CARI_PRODUK
 
-# ================= EXPORT =================
+# ================= EDIT / HAPUS =================
 
-async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = get_today_expired()
+async def menu_edit_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = get_expired_passed()
+
     if not data:
-        await update.message.reply_text("Tidak ada data hari ini.")
-        return
+        await update.message.reply_text("Tidak ada produk yang sudah lewat expired.")
+        return ConversationHandler.END
 
-    today=datetime.now().strftime("%Y-%m-%d")
-    filename=f"expired_{today}.txt"
+    keyboard = [
+        [InlineKeyboardButton(f"{d[1]} | {d[2]}", callback_data=f"exp_{d[0]}")]
+        for d in data
+    ]
 
-    lines=[f"LAPORAN EXPIRED - {today}","="*50]
+    await update.message.reply_text(
+        "Pilih produk expired:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
-    for row in data:
-        lokasi,sku,produk,upc,expired,pic=row
-        selisih=(expired-date.today()).days
-        status=""
-        if selisih<0: status="⚠️ SUDAH EXPIRED"
-        elif selisih<=3: status="⚠️ SEGERA EXPIRED"
+    return PILIH_EXPIRED
 
-        lines+= [
-            f"Lokasi : {lokasi}",
-            f"SKU    : {sku}",
-            f"Produk : {produk}",
-            f"UPC    : {upc}",
-            f"Expired: {expired} {status}",
-            f"PIC    : {pic}",
-            "-"*50
-        ]
+async def pilih_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data["edit_id"] = query.data.split("_")[1]
 
-    with open(filename,"w",encoding="utf-8") as f:
-        f.write("\n".join(lines))
-    with open(filename,"rb") as f:
-        await update.message.reply_document(f)
-    os.remove(filename)
+    keyboard = [
+        [InlineKeyboardButton("✏️ Edit Tanggal", callback_data="edit")],
+        [InlineKeyboardButton("🗑️ Hapus Data", callback_data="hapus")]
+    ]
 
-async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    now=datetime.now()
-    data=get_monthly_report(now.year,now.month)
-    if not data:
-        await update.message.reply_text("Tidak ada data bulan ini.")
-        return
+    await query.edit_message_text("Pilih aksi:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return AKSI_EXPIRED
 
-    filename=f"rekap_{now.year}_{now.month}.csv"
-    with open(filename,"w",newline="",encoding="utf-8") as f:
-        writer=csv.writer(f)
-        writer.writerow(["Lokasi","SKU","Produk","UPC","Expired","PIC","Tanggal Input"])
-        writer.writerows(data)
+async def aksi_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    with open(filename,"rb") as f:
-        await update.message.reply_document(f)
-    os.remove(filename)
+    if query.data == "hapus":
+        delete_expired(context.user_data["edit_id"])
+        await query.edit_message_text("✅ Data berhasil dihapus.")
+        return ConversationHandler.END
+
+    if query.data == "edit":
+        await query.edit_message_text("Masukkan tanggal expired baru (YYYY-MM-DD):")
+        return EDIT_TGL
+
+async def simpan_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        datetime.strptime(update.message.text,"%Y-%m-%d")
+    except:
+        await update.message.reply_text("Format salah.")
+        return EDIT_TGL
+
+    update_expired_date(context.user_data["edit_id"], update.message.text)
+    await update.message.reply_text("✅ Tanggal berhasil diupdate.", reply_markup=main_menu())
+    return ConversationHandler.END
 
 # ================= MAIN =================
 
@@ -305,7 +341,8 @@ if __name__=="__main__":
 
     conv=ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^➕ Input Produk$"), start_input)
+            MessageHandler(filters.Regex("^➕ Input Produk$"), start_input),
+            MessageHandler(filters.Regex("^✏️ Edit/Hapus Expired$"), menu_edit_expired),
         ],
         states={
             PILIH_LOKASI:[CallbackQueryHandler(pilih_lokasi,pattern="^lokasi_")],
@@ -316,7 +353,10 @@ if __name__=="__main__":
             TAMBAH_LAGI:[
                 MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
                 MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
-            ]
+            ],
+            PILIH_EXPIRED:[CallbackQueryHandler(pilih_expired,pattern="^exp_")],
+            AKSI_EXPIRED:[CallbackQueryHandler(aksi_expired)],
+            EDIT_TGL:[MessageHandler(filters.TEXT & ~filters.COMMAND,simpan_edit)]
         },
         fallbacks=[MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)]
     )
@@ -325,7 +365,6 @@ if __name__=="__main__":
     app.add_handler(conv)
     app.add_handler(MessageHandler(filters.Regex("^📄 Export Harian$"),export_harian))
     app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"),export_bulanan))
-    app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"),help_menu))
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
