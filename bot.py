@@ -22,7 +22,7 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-PILIH_LOKASI, PILIH_PIC, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED = range(5)
+PILIH_LOKASI, PILIH_PIC, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED, TAMBAH_LAGI = range(6)
 
 # ================= DATABASE =================
 
@@ -121,9 +121,8 @@ def get_monthly_report(year,month):
 
 def main_menu():
     keyboard = [
-        [KeyboardButton("➕ Input Produk"), KeyboardButton("🔄 Pindah Lokasi")],
-        [KeyboardButton("📄 Export Harian"), KeyboardButton("📊 Rekap Bulanan CSV")],
-        [KeyboardButton("ℹ️ Help"), KeyboardButton("❌ Batal")]
+        [KeyboardButton("➕ Input Produk"), KeyboardButton("📄 Export Harian")],
+        [KeyboardButton("📊 Rekap Bulanan CSV"), KeyboardButton("ℹ️ Help")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -143,16 +142,15 @@ async def help_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📌 MENU:\n"
         "➕ Input Produk\n"
-        "🔄 Pindah Lokasi\n"
         "📄 Export Harian\n"
-        "📊 Rekap Bulanan CSV\n"
-        "❌ Batal",
+        "📊 Rekap Bulanan CSV",
         reply_markup=main_menu()
     )
 
 async def cancel_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
     await update.message.reply_text(
-        "❌ Proses dibatalkan.",
+        "✅ Selesai.",
         reply_markup=main_menu()
     )
     return ConversationHandler.END
@@ -188,7 +186,7 @@ async def pilih_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     context.user_data["pic"] = result[0]
-    await query.edit_message_text(f"PIC: {result[0]}\nKetik SKU / Nama / UPC:")
+    await query.edit_message_text(f"PIC: {result[0]}\n\nKetik SKU / Nama / UPC:")
     return CARI_PRODUK
 
 async def cari_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -215,10 +213,11 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         datetime.strptime(update.message.text,"%Y-%m-%d")
     except:
-        await update.message.reply_text("Format salah.")
+        await update.message.reply_text("Format salah. Gunakan YYYY-MM-DD")
         return INPUT_EXPIRED
 
     p = context.user_data["produk"]
+
     save_expired(
         context.user_data["lokasi"],
         p["upc"],
@@ -227,8 +226,24 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["pic"]
     )
 
-    await update.message.reply_text("✅ Data berhasil disimpan.",reply_markup=main_menu())
-    return ConversationHandler.END
+    keyboard = [
+        [KeyboardButton("➕ Tambah Produk Lagi")],
+        [KeyboardButton("❌ Selesai")]
+    ]
+
+    await update.message.reply_text(
+        "✅ Data berhasil disimpan.\nTambah produk lagi?",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    )
+
+    return TAMBAH_LAGI
+
+async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"Lokasi tetap ✔️\nPIC: {context.user_data['pic']}\n\n"
+        "Ketik SKU / Nama / UPC:"
+    )
+    return CARI_PRODUK
 
 # ================= EXPORT =================
 
@@ -290,16 +305,20 @@ if __name__=="__main__":
 
     conv=ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^(➕ Input Produk|🔄 Pindah Lokasi)$"), start_input)
+            MessageHandler(filters.Regex("^➕ Input Produk$"), start_input)
         ],
         states={
             PILIH_LOKASI:[CallbackQueryHandler(pilih_lokasi,pattern="^lokasi_")],
             PILIH_PIC:[CallbackQueryHandler(pilih_pic,pattern="^pic_")],
             CARI_PRODUK:[MessageHandler(filters.TEXT & ~filters.COMMAND,cari_produk)],
             PILIH_PRODUK:[CallbackQueryHandler(pilih_produk,pattern="^produk_")],
-            INPUT_EXPIRED:[MessageHandler(filters.TEXT & ~filters.COMMAND,input_expired)]
+            INPUT_EXPIRED:[MessageHandler(filters.TEXT & ~filters.COMMAND,input_expired)],
+            TAMBAH_LAGI:[
+                MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
+                MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
+            ]
         },
-        fallbacks=[MessageHandler(filters.Regex("^❌ Batal$"), cancel_process)]
+        fallbacks=[MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)]
     )
 
     app.add_handler(CommandHandler("start",start))
