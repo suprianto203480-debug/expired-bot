@@ -12,40 +12,27 @@ from telegram.ext import (
     filters
 )
 
-# =========================
-# CONFIG
-# =========================
-
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-PILIH_LOKASI, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED = range(4)
+PILIH_LOKASI, PILIH_PIC, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED = range(5)
 
-# =========================
-# DATABASE CONNECTION
-# =========================
+# ================= DATABASE =================
 
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
-
-# =========================
-# DATABASE FUNCTIONS
-# =========================
 
 def user_exists(telegram_id):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT nama
-        FROM users
-        WHERE telegram_id = %s
-        AND is_active = true
+        SELECT nama FROM users
+        WHERE telegram_id = %s AND is_active = true
     """, (telegram_id,))
     result = cur.fetchone()
     cur.close()
     conn.close()
     return result
-
 
 def get_locations():
     conn = get_connection()
@@ -61,12 +48,25 @@ def get_locations():
     conn.close()
     return rows
 
+def get_active_users():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, nama
+        FROM users
+        WHERE is_active = true
+        ORDER BY nama
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
 
 def search_product(keyword):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT upc, deskripsi
+        SELECT upc, sku, deskripsi
         FROM products
         WHERE
             upc ILIKE %s OR
@@ -79,215 +79,194 @@ def search_product(keyword):
     cur.close()
     conn.close()
 
-    return [{"upc": r[0], "nama_produk": r[1]} for r in rows]
-
+    return [{"upc": r[0], "sku": r[1], "nama_produk": r[2]} for r in rows]
 
 def save_expired(lokasi_id, upc, nama_produk, expired_date, pic):
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO expired_logs
+        (tanggal_input, lokasi, upc, nama_produk, expired_date, pic)
+        VALUES (NOW(), %s, %s, %s, %s, %s)
+    """, (lokasi_id, upc, nama_produk, expired_date, pic))
+    conn.commit()
+    cur.close()
+    conn.close()
 
-        cur.execute("""
-            INSERT INTO expired_logs
-            (tanggal_input, lokasi, upc, nama_produk, expired_date, pic)
-            VALUES (NOW(), %s, %s, %s, %s, %s)
-        """, (lokasi_id, upc, nama_produk, expired_date, pic))
+def get_today_expired():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT 
+            l.nama_lokasi,
+            p.sku,
+            e.nama_produk,
+            e.upc,
+            e.expired_date,
+            e.pic
+        FROM expired_logs e
+        LEFT JOIN locations l ON l.id::text = e.lokasi::text
+        LEFT JOIN products p ON p.upc::text = e.upc::text
+        WHERE DATE(e.tanggal_input) = CURRENT_DATE
+        ORDER BY l.nama_lokasi, p.sku
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
 
-        conn.commit()
-        cur.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print("Insert Error:", e)
-        return False
-
-# =========================
-# HANDLERS
-# =========================
+# ================= HANDLERS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     user = user_exists(telegram_id)
 
     if not user:
-        await update.message.reply_text("❌ Anda tidak terdaftar atau tidak aktif.")
+        await update.message.reply_text("❌ Anda tidak terdaftar.")
         return ConversationHandler.END
 
     locations = get_locations()
-
-    if not locations:
-        await update.message.reply_text("❌ Tidak ada lokasi aktif.")
-        return ConversationHandler.END
-
-    keyboard = []
-    for loc in locations:
-        keyboard.append([
-            InlineKeyboardButton(
-                f"📍 {loc[1]}",
-                callback_data=f"lokasi_{loc[0]}"
-            )
-        ])
+    keyboard = [[InlineKeyboardButton(f"📍 {l[1]}", callback_data=f"lokasi_{l[0]}")] for l in locations]
 
     await update.message.reply_text(
         f"Halo {user[0]} 👋\n\nPilih Lokasi:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-
     return PILIH_LOKASI
-
 
 async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     lokasi_id = query.data.split("_")[1]
     context.user_data["lokasi"] = lokasi_id
 
+    users = get_active_users()
+    keyboard = [[InlineKeyboardButton(f"👤 {u[1]}", callback_data=f"pic_{u[0]}")] for u in users]
+
+    await query.edit_message_text("Pilih PIC:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return PILIH_PIC
+
+async def pilih_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    pic_id = query.data.split("_")[1]
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT nama FROM users WHERE id=%s", (pic_id,))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    context.user_data["pic"] = result[0]
+
     await query.edit_message_text(
-        f"✅ Lokasi dipilih.\n\nKetik SKU / Nama / UPC produk:"
+        f"✅ PIC: {result[0]}\n\nKetik SKU / Nama / UPC:"
     )
-
     return CARI_PRODUK
-
 
 async def cari_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyword = update.message.text.strip()
-
     results = search_product(keyword)
 
     if not results:
-        await update.message.reply_text("❌ Produk tidak ditemukan. Coba lagi.")
+        await update.message.reply_text("❌ Produk tidak ditemukan.")
         return CARI_PRODUK
 
-    keyboard = []
-    for p in results:
-        keyboard.append([
-            InlineKeyboardButton(
-                p["nama_produk"],
-                callback_data=f"produk_{p['upc']}"
-            )
-        ])
-
-    keyboard.append([
-        InlineKeyboardButton("🔁 Pindah Lokasi", callback_data="ganti_lokasi")
-    ])
+    keyboard = [
+        [InlineKeyboardButton(f"{p['nama_produk']}", callback_data=f"produk_{p['upc']}")]
+        for p in results
+    ]
 
     context.user_data["last_results"] = results
 
-    await update.message.reply_text(
-        "Pilih Produk:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
+    await update.message.reply_text("Pilih Produk:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PILIH_PRODUK
-
 
 async def pilih_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    if query.data == "ganti_lokasi":
-        locations = get_locations()
-
-        keyboard = []
-        for loc in locations:
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"📍 {loc[1]}",
-                    callback_data=f"lokasi_{loc[0]}"
-                )
-            ])
-
-        await query.edit_message_text(
-            "Pilih Lokasi:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-        return PILIH_LOKASI
-
     upc = query.data.split("_")[1]
 
-    selected = None
-    for p in context.user_data.get("last_results", []):
-        if p["upc"] == upc:
-            selected = p
-            break
-
-    if not selected:
-        await query.edit_message_text("❌ Produk tidak ditemukan.")
-        return ConversationHandler.END
-
+    selected = next((p for p in context.user_data["last_results"] if p["upc"] == upc), None)
     context.user_data["selected_product"] = selected
 
     await query.edit_message_text(
-        f"Produk:\n{selected['nama_produk']}\n\nMasukkan tanggal expired (YYYY-MM-DD):"
+        f"Produk: {selected['nama_produk']}\nMasukkan tanggal expired (YYYY-MM-DD):"
     )
-
     return INPUT_EXPIRED
-
 
 async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     expired_date = update.message.text.strip()
 
     try:
         datetime.strptime(expired_date, "%Y-%m-%d")
-    except ValueError:
+    except:
         await update.message.reply_text("❌ Format salah. Gunakan YYYY-MM-DD")
         return INPUT_EXPIRED
 
-    produk = context.user_data.get("selected_product")
-    lokasi = context.user_data.get("lokasi")
+    produk = context.user_data["selected_product"]
+    lokasi = context.user_data["lokasi"]
+    pic = context.user_data["pic"]
 
-    if not produk or not lokasi:
-        await update.message.reply_text("❌ Session expired. Ketik /start lagi.")
-        return ConversationHandler.END
+    save_expired(lokasi, produk["upc"], produk["nama_produk"], expired_date, pic)
 
-    user = update.effective_user
+    await update.message.reply_text("✅ Data berhasil disimpan.")
+    return CARI_PRODUK
 
-    success = save_expired(
-        lokasi,
-        produk["upc"],
-        produk["nama_produk"],
-        expired_date,
-        user.full_name
-    )
+# ================= EXPORT TXT =================
 
-    if success:
-        await update.message.reply_text(
-            "✅ Data berhasil disimpan!\n\nKetik produk berikutnya atau tekan 🔁 Pindah Lokasi."
-        )
-        return CARI_PRODUK
-    else:
-        await update.message.reply_text("❌ Gagal menyimpan data.")
-        return ConversationHandler.END
+async def export_txt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = get_today_expired()
 
-# =========================
-# MAIN
-# =========================
+    if not data:
+        await update.message.reply_text("❌ Tidak ada data expired hari ini.")
+        return
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    filename = f"expired_{today}.txt"
+
+    lines = []
+    lines.append(f"LAPORAN EXPIRED - {today}")
+    lines.append("=" * 40)
+
+    for row in data:
+        lokasi, sku, produk, upc, expired, pic = row
+        lines.append(f"Lokasi : {lokasi}")
+        lines.append(f"SKU    : {sku}")
+        lines.append(f"Produk : {produk}")
+        lines.append(f"UPC    : {upc}")
+        lines.append(f"Expired: {expired}")
+        lines.append(f"PIC    : {pic}")
+        lines.append("-" * 40)
+
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    with open(filename, "rb") as f:
+        await update.message.reply_document(document=f)
+
+    os.remove(filename)
+
+# ================= MAIN =================
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
-    conv_handler = ConversationHandler(
+    conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            PILIH_LOKASI: [
-                CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")
-            ],
-            CARI_PRODUK: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)
-            ],
-            PILIH_PRODUK: [
-                CallbackQueryHandler(pilih_produk)
-            ],
-            INPUT_EXPIRED: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)
-            ],
+            PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
+            PILIH_PIC: [CallbackQueryHandler(pilih_pic, pattern="^pic_")],
+            CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
+            PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
+            INPUT_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)],
         },
-        fallbacks=[],
+        fallbacks=[]
     )
 
-    app.add_handler(conv_handler)
+    app.add_handler(conv)
+    app.add_handler(CommandHandler("export", export_txt))
 
     print("✅ Bot Running...")
     app.run_polling()
