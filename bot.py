@@ -1,7 +1,13 @@
 import os
 import psycopg2
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -74,7 +80,6 @@ def search_product(keyword):
             deskripsi ILIKE %s
         LIMIT 10
     """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"))
-
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -115,6 +120,15 @@ def get_today_expired():
     conn.close()
     return rows
 
+# ================= MENU =================
+
+def main_menu():
+    keyboard = [
+        [KeyboardButton("➕ Input Produk"), KeyboardButton("🔄 Pindah Lokasi")],
+        [KeyboardButton("📄 Export TXT"), KeyboardButton("ℹ️ Help")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
 # ================= HANDLERS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -125,30 +139,63 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Anda tidak terdaftar.")
         return ConversationHandler.END
 
-    locations = get_locations()
-    keyboard = [[InlineKeyboardButton(f"📍 {l[1]}", callback_data=f"lokasi_{l[0]}")] for l in locations]
-
     await update.message.reply_text(
-        f"Halo {user[0]} 👋\n\nPilih Lokasi:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        f"Halo {user[0]} 👋\n\nSilakan pilih menu:",
+        reply_markup=main_menu()
     )
-    return PILIH_LOKASI
+
+async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+
+    if text in ["➕ Input Produk", "🔄 Pindah Lokasi"]:
+        locations = get_locations()
+        keyboard = [
+            [InlineKeyboardButton(f"📍 {l[1]}", callback_data=f"lokasi_{l[0]}")]
+            for l in locations
+        ]
+
+        await update.message.reply_text(
+            "Pilih Lokasi:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return PILIH_LOKASI
+
+    if text == "📄 Export TXT":
+        await export_txt(update, context)
+        return ConversationHandler.END
+
+    if text == "ℹ️ Help":
+        await update.message.reply_text(
+            "📌 MENU BOT:\n\n"
+            "➕ Input Produk → tambah expired\n"
+            "🔄 Pindah Lokasi → ganti lokasi\n"
+            "📄 Export TXT → download laporan hari ini\n",
+            reply_markup=main_menu()
+        )
 
 async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     lokasi_id = query.data.split("_")[1]
     context.user_data["lokasi"] = lokasi_id
 
     users = get_active_users()
-    keyboard = [[InlineKeyboardButton(f"👤 {u[1]}", callback_data=f"pic_{u[0]}")] for u in users]
+    keyboard = [
+        [InlineKeyboardButton(f"👤 {u[1]}", callback_data=f"pic_{u[0]}")]
+        for u in users
+    ]
 
-    await query.edit_message_text("Pilih PIC:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(
+        "Pilih PIC:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     return PILIH_PIC
 
 async def pilih_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     pic_id = query.data.split("_")[1]
 
     conn = get_connection()
@@ -174,21 +221,28 @@ async def cari_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CARI_PRODUK
 
     keyboard = [
-        [InlineKeyboardButton(f"{p['nama_produk']}", callback_data=f"produk_{p['upc']}")]
+        [InlineKeyboardButton(p["nama_produk"], callback_data=f"produk_{p['upc']}")]
         for p in results
     ]
 
     context.user_data["last_results"] = results
 
-    await update.message.reply_text("Pilih Produk:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(
+        "Pilih Produk:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     return PILIH_PRODUK
 
 async def pilih_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    upc = query.data.split("_")[1]
 
-    selected = next((p for p in context.user_data["last_results"] if p["upc"] == upc), None)
+    upc = query.data.split("_")[1]
+    selected = next(
+        (p for p in context.user_data["last_results"] if p["upc"] == upc),
+        None
+    )
+
     context.user_data["selected_product"] = selected
 
     await query.edit_message_text(
@@ -211,10 +265,14 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_expired(lokasi, produk["upc"], produk["nama_produk"], expired_date, pic)
 
-    await update.message.reply_text("✅ Data berhasil disimpan.")
-    return CARI_PRODUK
+    await update.message.reply_text(
+        "✅ Data berhasil disimpan.",
+        reply_markup=main_menu()
+    )
 
-# ================= EXPORT TXT =================
+    return ConversationHandler.END
+
+# ================= EXPORT =================
 
 async def export_txt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = get_today_expired()
@@ -254,7 +312,7 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
     conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[MessageHandler(filters.Regex("^(➕ Input Produk|🔄 Pindah Lokasi)$"), menu_handler)],
         states={
             PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
             PILIH_PIC: [CallbackQueryHandler(pilih_pic, pattern="^pic_")],
@@ -265,7 +323,9 @@ if __name__ == "__main__":
         fallbacks=[]
     )
 
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
     app.add_handler(CommandHandler("export", export_txt))
 
     print("✅ Bot Running...")
