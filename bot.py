@@ -76,7 +76,7 @@ def save_expired(lokasi_id, upc, nama_produk, expired_date, pic):
     cur.execute("""
         INSERT INTO expired_logs
         (tanggal_input,lokasi,upc,nama_produk,expired_date,pic)
-        VALUES (NOW(),%s,%s,%s,%s,%s)
+        VALUES ((NOW() AT TIME ZONE 'Asia/Jakarta'),%s,%s,%s,%s,%s)
     """,(lokasi_id,upc,nama_produk,expired_date,pic))
     conn.commit()
     cur.close()
@@ -93,11 +93,12 @@ def get_today_expired():
                e.upc,
                e.expired_date,
                e.pic,
-               DATE(e.tanggal_input)
+               (e.tanggal_input AT TIME ZONE 'Asia/Jakarta')::date
         FROM expired_logs e
         LEFT JOIN locations l ON l.id::text = e.lokasi::text
         LEFT JOIN products p ON p.upc::text = e.upc::text
-        WHERE DATE(e.tanggal_input) = CURRENT_DATE
+        WHERE (e.tanggal_input AT TIME ZONE 'Asia/Jakarta')::date =
+              (NOW() AT TIME ZONE 'Asia/Jakarta')::date
         ORDER BY l.nama_lokasi, p.sku
     """)
     rows = cur.fetchall()
@@ -360,4 +361,5 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
