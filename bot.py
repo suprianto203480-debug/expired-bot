@@ -82,17 +82,20 @@ def save_expired(lokasi_id, upc, nama_produk, expired_date, pic):
     cur.close()
     conn.close()
 
-def get_today_expired():
+return rows
+
+
+def get_expired_today_with_id():
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT l.nama_lokasi,p.sku,e.nama_produk,
+        SELECT e.id,l.nama_lokasi,p.sku,e.nama_produk,
                e.upc,e.expired_date,e.pic
         FROM expired_logs e
         LEFT JOIN locations l ON l.id::text=e.lokasi::text
         LEFT JOIN products p ON p.upc::text=e.upc::text
-        WHERE DATE(e.tanggal_input)=CURRENT_DATE
-        ORDER BY l.nama_lokasi,p.sku
+        WHERE e.expired_date < CURRENT_DATE
+        ORDER BY e.expired_date
     """)
     rows = cur.fetchall()
     cur.close()
@@ -387,4 +390,5 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
