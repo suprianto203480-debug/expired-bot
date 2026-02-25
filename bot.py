@@ -93,12 +93,12 @@ def get_today_expired():
                e.upc,
                e.expired_date,
                e.pic,
-               (e.tanggal_input AT TIME ZONE 'Asia/Jakarta')::date
+               e.tanggal_input
         FROM expired_logs e
         LEFT JOIN locations l ON l.id::text = e.lokasi::text
         LEFT JOIN products p ON p.upc::text = e.upc::text
-        WHERE (e.tanggal_input AT TIME ZONE 'Asia/Jakarta')::date =
-              (NOW() AT TIME ZONE 'Asia/Jakarta')::date
+        WHERE e.tanggal_input >= date_trunc('day', NOW())
+        AND e.tanggal_input < date_trunc('day', NOW()) + INTERVAL '1 day'
         ORDER BY l.nama_lokasi, p.sku
     """)
     rows = cur.fetchall()
@@ -361,5 +361,6 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
 
