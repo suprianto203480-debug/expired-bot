@@ -72,7 +72,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [KeyboardButton(
             text="📷 Scan Item",
             web_app=WebAppInfo(
-                url="https://ISI_URL_WEBAPP_NANTI"
+                url="https://https://example.com"
             )
         )]
     ]
@@ -179,3 +179,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
