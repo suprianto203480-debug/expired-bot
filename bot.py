@@ -82,6 +82,7 @@ def save_expired(lokasi_id, upc, nama_produk, expired_date, pic):
     cur.close()
     conn.close()
 
+# ✅ HANYA expired_date = hari ini
 def get_today_expired():
     conn = get_connection()
     cur = conn.cursor()
@@ -91,7 +92,7 @@ def get_today_expired():
         FROM expired_logs e
         LEFT JOIN locations l ON l.id::text=e.lokasi::text
         LEFT JOIN products p ON p.upc::text=e.upc::text
-        WHERE DATE(e.tanggal_input)=CURRENT_DATE
+        WHERE e.expired_date = CURRENT_DATE
         ORDER BY l.nama_lokasi,p.sku
     """)
     rows = cur.fetchall()
@@ -122,13 +123,15 @@ def get_monthly_report(year,month):
 def main_menu():
     keyboard = [
         [KeyboardButton("➕ Input Produk"), KeyboardButton("📄 Export Harian")],
-        [KeyboardButton("📊 Rekap Bulanan CSV"), KeyboardButton("ℹ️ Help")]
+        [KeyboardButton("📊 Rekap Bulanan CSV"), KeyboardButton("ℹ️ Help")],
+        [KeyboardButton("🏠 Menu Utama")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ================= HANDLERS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
     user = user_exists(update.effective_user.id)
     if not user:
         await update.message.reply_text("❌ Anda tidak terdaftar.")
@@ -138,11 +141,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
+# ✅ tombol menu utama global
+async def menu_utama(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text(
+        "🏠 Kembali ke Menu Utama.",
+        reply_markup=main_menu()
+    )
+    return ConversationHandler.END
+
 async def help_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📌 MENU:\n"
         "➕ Input Produk\n"
-        "📄 Export Harian\n"
+        "📄 Export Harian (Expired Hari Ini)\n"
         "📊 Rekap Bulanan CSV",
         reply_markup=main_menu()
     )
@@ -155,102 +167,12 @@ async def cancel_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
-# ================= INPUT FLOW =================
-
-async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    locations = get_locations()
-    keyboard = [[InlineKeyboardButton(l[1], callback_data=f"lokasi_{l[0]}")] for l in locations]
-    await update.message.reply_text("Pilih Lokasi:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return PILIH_LOKASI
-
-async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data["lokasi"] = query.data.split("_")[1]
-
-    users = get_active_users()
-    keyboard = [[InlineKeyboardButton(u[1], callback_data=f"pic_{u[0]}")] for u in users]
-    await query.edit_message_text("Pilih PIC:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return PILIH_PIC
-
-async def pilih_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    pic_id = query.data.split("_")[1]
-
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT nama FROM users WHERE id=%s",(pic_id,))
-    result = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    context.user_data["pic"] = result[0]
-    await query.edit_message_text(f"PIC: {result[0]}\n\nKetik SKU / Nama / UPC:")
-    return CARI_PRODUK
-
-async def cari_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    results = search_product(update.message.text.strip())
-    if not results:
-        await update.message.reply_text("Produk tidak ditemukan.")
-        return CARI_PRODUK
-
-    keyboard = [[InlineKeyboardButton(p["nama_produk"],callback_data=f"produk_{p['upc']}")] for p in results]
-    context.user_data["last"] = results
-    await update.message.reply_text("Pilih Produk:",reply_markup=InlineKeyboardMarkup(keyboard))
-    return PILIH_PRODUK
-
-async def pilih_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    upc = query.data.split("_")[1]
-    selected = next(p for p in context.user_data["last"] if p["upc"]==upc)
-    context.user_data["produk"]=selected
-    await query.edit_message_text("Masukkan tanggal expired (YYYY-MM-DD):")
-    return INPUT_EXPIRED
-
-async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        datetime.strptime(update.message.text,"%Y-%m-%d")
-    except:
-        await update.message.reply_text("Format salah. Gunakan YYYY-MM-DD")
-        return INPUT_EXPIRED
-
-    p = context.user_data["produk"]
-
-    save_expired(
-        context.user_data["lokasi"],
-        p["upc"],
-        p["nama_produk"],
-        update.message.text,
-        context.user_data["pic"]
-    )
-
-    keyboard = [
-        [KeyboardButton("➕ Tambah Produk Lagi")],
-        [KeyboardButton("❌ Selesai")]
-    ]
-
-    await update.message.reply_text(
-        "✅ Data berhasil disimpan.\nTambah produk lagi?",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    )
-
-    return TAMBAH_LAGI
-
-async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"Lokasi tetap ✔️\nPIC: {context.user_data['pic']}\n\n"
-        "Ketik SKU / Nama / UPC:"
-    )
-    return CARI_PRODUK
-
 # ================= EXPORT =================
 
 async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = get_today_expired()
     if not data:
-        await update.message.reply_text("Tidak ada data hari ini.")
+        await update.message.reply_text("Tidak ada produk expired hari ini.")
         return
 
     today=datetime.now().strftime("%Y-%m-%d")
@@ -260,40 +182,18 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for row in data:
         lokasi,sku,produk,upc,expired,pic=row
-        selisih=(expired-date.today()).days
-        status=""
-        if selisih<0: status="⚠️ SUDAH EXPIRED"
-        elif selisih<=3: status="⚠️ SEGERA EXPIRED"
-
         lines+= [
             f"Lokasi : {lokasi}",
             f"SKU    : {sku}",
             f"Produk : {produk}",
             f"UPC    : {upc}",
-            f"Expired: {expired} {status}",
+            f"Expired: {expired}",
             f"PIC    : {pic}",
             "-"*50
         ]
 
     with open(filename,"w",encoding="utf-8") as f:
         f.write("\n".join(lines))
-    with open(filename,"rb") as f:
-        await update.message.reply_document(f)
-    os.remove(filename)
-
-async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    now=datetime.now()
-    data=get_monthly_report(now.year,now.month)
-    if not data:
-        await update.message.reply_text("Tidak ada data bulan ini.")
-        return
-
-    filename=f"rekap_{now.year}_{now.month}.csv"
-    with open(filename,"w",newline="",encoding="utf-8") as f:
-        writer=csv.writer(f)
-        writer.writerow(["Lokasi","SKU","Produk","UPC","Expired","PIC","Tanggal Input"])
-        writer.writerows(data)
-
     with open(filename,"rb") as f:
         await update.message.reply_document(f)
     os.remove(filename)
@@ -318,7 +218,10 @@ if __name__=="__main__":
                 MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
             ]
         },
-        fallbacks=[MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)]
+        fallbacks=[
+            MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
+            MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama)
+        ]
     )
 
     app.add_handler(CommandHandler("start",start))
@@ -326,6 +229,7 @@ if __name__=="__main__":
     app.add_handler(MessageHandler(filters.Regex("^📄 Export Harian$"),export_harian))
     app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"),export_bulanan))
     app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"),help_menu))
+    app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"),menu_utama))
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
