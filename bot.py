@@ -1,134 +1,261 @@
 import os
 import psycopg2
-from telegram import Update
+from datetime import datetime
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
     ContextTypes,
     filters
 )
 
-# ================= CONFIG =================
+# ========================
+# CONFIG
+# ========================
+
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# ================= DATABASE =================
+PILIH_LOKASI, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED = range(4)
+
+# ========================
+# DATABASE CONNECTION
+# ========================
+
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
-def search_product(keyword, dept_filter=None):
+# ========================
+# DATABASE FUNCTIONS
+# ========================
+
+def user_exists(telegram_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT nama FROM users WHERE telegram_id = %s",
+        (telegram_id,)
+    )
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    return result
+
+def search_product(keyword):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT upc, nama_produk
+        FROM products
+        WHERE
+            upc ILIKE %s OR
+            sku ILIKE %s OR
+            nama_produk ILIKE %s
+        LIMIT 10
+    """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"))
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return [{"upc": r[0], "nama_produk": r[1]} for r in rows]
+
+def save_expired(lokasi, upc, nama_produk, expired_date, pic):
     try:
         conn = get_connection()
         cur = conn.cursor()
 
-        value = f"%{keyword}%"
+        cur.execute("""
+            INSERT INTO expired_logs
+            (tanggal_input, lokasi, upc, nama_produk, expired_date, pic)
+            VALUES (NOW(), %s, %s, %s, %s, %s)
+        """, (lokasi, upc, nama_produk, expired_date, pic))
 
-        if dept_filter:
-            query = """
-            SELECT dept, sku, deskripsi, upc
-            FROM products
-            WHERE dept = %s AND (
-                CAST(sku AS TEXT) ILIKE %s OR
-                CAST(upc AS TEXT) ILIKE %s OR
-                deskripsi ILIKE %s
-            )
-            ORDER BY dept, sku
-            LIMIT 10
-            """
-            cur.execute(query, (dept_filter, value, value, value))
-        else:
-            query = """
-            SELECT dept, sku, deskripsi, upc
-            FROM products
-            WHERE 
-                CAST(sku AS TEXT) ILIKE %s OR
-                CAST(upc AS TEXT) ILIKE %s OR
-                deskripsi ILIKE %s
-            ORDER BY dept, sku
-            LIMIT 10
-            """
-            cur.execute(query, (value, value, value))
-
-        rows = cur.fetchall()
+        conn.commit()
         cur.close()
         conn.close()
-
-        return rows
-
+        return True
     except Exception as e:
-        print("Database Error:", e)
-        return None
+        print("Insert Error:", e)
+        return False
 
-# ================= COMMAND =================
+# ========================
+# HANDLERS
+# ========================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+
+    user = user_exists(telegram_id)
+    if not user:
+        await update.message.reply_text("❌ Anda tidak terdaftar")
+        return ConversationHandler.END
+
+    keyboard = [
+        [InlineKeyboardButton("📍 Lokasi 1", callback_data="lokasi_1")],
+        [InlineKeyboardButton("📍 Lokasi 2", callback_data="lokasi_2")]
+    ]
+
     await update.message.reply_text(
-        "Halo.\n\n"
-        "Kirim SKU, UPC, atau nama produk.\n"
-        "Gunakan format: dept:97 ayam"
+        f"Halo {user[0]} 👋\n\nPilih Lokasi:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Cara pakai:\n\n"
-        "1. Cari normal:\n"
-        "97236290\n"
-        "atau\n"
-        "ayam\n\n"
-        "2. Filter dept:\n"
-        "dept:97 ayam"
+    return PILIH_LOKASI
+
+# ========================
+# PILIH LOKASI
+# ========================
+
+async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    lokasi = query.data.split("_")[1]
+    context.user_data["lokasi"] = lokasi
+
+    await query.edit_message_text(
+        f"✅ Lokasi dipilih: {lokasi}\n\nKetik SKU / Nama / UPC produk:"
     )
 
-# ================= MESSAGE =================
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+    return CARI_PRODUK
 
-    dept_filter = None
-    keyword = text
+# ========================
+# CARI PRODUK
+# ========================
 
-    # Cek filter dept
-    if text.lower().startswith("dept:"):
-        try:
-            parts = text.split(" ", 1)
-            dept_part = parts[0]
-            keyword = parts[1]
-            dept_filter = dept_part.replace("dept:", "").strip()
-        except:
-            await update.message.reply_text("Format salah. Contoh: dept:97 ayam")
-            return
+async def cari_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyword = update.message.text
 
-    results = search_product(keyword, dept_filter)
+    results = search_product(keyword)
 
-    if results is None:
-        await update.message.reply_text("Database error.")
-        return
+    if not results:
+        await update.message.reply_text("❌ Produk tidak ditemukan. Coba lagi.")
+        return CARI_PRODUK
 
-    if len(results) == 0:
-        await update.message.reply_text("Produk tidak ditemukan.")
-        return
+    keyboard = []
 
-    response = ""
+    for p in results:
+        keyboard.append([
+            InlineKeyboardButton(
+                p["nama_produk"],
+                callback_data=f"produk_{p['upc']}"
+            )
+        ])
 
-    for row in results:
-        dept, sku, deskripsi, upc = row
+    keyboard.append([
+        InlineKeyboardButton("🔁 Pindah Lokasi", callback_data="ganti_lokasi")
+    ])
 
-        response += (
-            f"{sku} {deskripsi}\n"
-            f"UPC  : {upc}\n\n"
+    await update.message.reply_text(
+        "Pilih Produk:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+    context.user_data["last_results"] = results
+    return PILIH_PRODUK
+
+# ========================
+# PILIH PRODUK
+# ========================
+
+async def pilih_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "ganti_lokasi":
+        keyboard = [
+            [InlineKeyboardButton("📍 Lokasi 1", callback_data="lokasi_1")],
+            [InlineKeyboardButton("📍 Lokasi 2", callback_data="lokasi_2")]
+        ]
+        await query.edit_message_text(
+            "Pilih Lokasi:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
+        return PILIH_LOKASI
 
-    await update.message.reply_text(response.strip())
+    upc = query.data.split("_")[1]
 
-# ================= MAIN =================
-def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+    for p in context.user_data["last_results"]:
+        if p["upc"] == upc:
+            context.user_data["selected_product"] = p
+            break
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    await query.edit_message_text(
+        f"Produk: {context.user_data['selected_product']['nama_produk']}\n\n"
+        "Masukkan tanggal expired (YYYY-MM-DD):"
+    )
 
-    print("Bot berjalan...")
-    app.run_polling()
+    return INPUT_EXPIRED
+
+# ========================
+# INPUT EXPIRED
+# ========================
+
+async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    expired_date = update.message.text
+
+    try:
+        datetime.strptime(expired_date, "%Y-%m-%d")
+    except:
+        await update.message.reply_text("❌ Format salah. Gunakan YYYY-MM-DD")
+        return INPUT_EXPIRED
+
+    user = update.effective_user
+    produk = context.user_data["selected_product"]
+    lokasi = context.user_data["lokasi"]
+
+    success = save_expired(
+        lokasi,
+        produk["upc"],
+        produk["nama_produk"],
+        expired_date,
+        user.full_name
+    )
+
+    if success:
+        await update.message.reply_text(
+            "✅ Data berhasil disimpan!\n\nKetik produk berikutnya atau tekan 🔁 Pindah Lokasi."
+        )
+        return CARI_PRODUK
+    else:
+        await update.message.reply_text("❌ Gagal menyimpan data")
+        return ConversationHandler.END
+
+# ========================
+# MAIN
+# ========================
 
 if __name__ == "__main__":
-    main()
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            PILIH_LOKASI: [
+                CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")
+            ],
+            CARI_PRODUK: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)
+            ],
+            PILIH_PRODUK: [
+                CallbackQueryHandler(pilih_produk)
+            ],
+            INPUT_EXPIRED: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)
+            ],
+        },
+        fallbacks=[],
+    )
+
+    app.add_handler(conv_handler)
+
+    print("Bot Running...")
+    app.run_polling()
