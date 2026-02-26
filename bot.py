@@ -336,57 +336,62 @@ Input Date : {input_date}
 
     os.remove(filename)
 
-async def export_rekap_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = get_connection()
-    cursor = conn.cursor()
+async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    now = datetime.now()
+    data = get_monthly_report(now.year, now.month)
 
-    today = datetime.now()
-    bulan = today.month
-    tahun = today.year
-
-    cursor.execute("""
-        SELECT tanggal_input, sku, deskripsi, upc, lokasi, expired_date, status, user_input
-        FROM expired_products
-        WHERE EXTRACT(MONTH FROM tanggal_input) = %s
-        AND EXTRACT(YEAR FROM tanggal_input) = %s
-        ORDER BY tanggal_input ASC
-    """, (bulan, tahun))
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    if not rows:
+    if not data:
         await update.message.reply_text("Tidak ada data bulan ini.")
         return
 
-    output = io.StringIO()
-    writer = csv.writer(output)
+    filename = f"rekap_{now.year}_{now.month}.csv"
 
-    # Header kolom
-    writer.writerow([
-        "Tanggal Input",
-        "SKU",
-        "Deskripsi",
-        "UPC",
-        "Lokasi",
-        "Expired Date",
-        "Status",
-        "User Input"
-    ])
+    with open(filename, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
 
-    for row in rows:
-        writer.writerow(row)
+        # Tambah kolom STATUS
+        writer.writerow([
+            "Lokasi",
+            "SKU",
+            "Produk",
+            "UPC",
+            "Expired",
+            "Status",
+            "PIC",
+            "Tanggal Input"
+        ])
 
-    output.seek(0)
+        for row in data:
+            lokasi, sku, produk, upc, expired, pic, input_date = row
 
-    filename = f"rekap_bulanan_{bulan}_{tahun}.csv"
+            selisih = (expired - date.today()).days
 
-    await update.message.reply_document(
-        document=io.BytesIO(output.getvalue().encode()),
-        filename=filename,
-        caption=f"Rekap Bulanan {bulan}-{tahun}"
-    )
+            if selisih < 0:
+                status = "🔴 SUDAH EXPIRED"
+            elif selisih == 0:
+                status = "🟠 HARI INI"
+            elif selisih == 1:
+                status = "🟡 H-1"
+            elif 2 <= selisih <= 7:
+                status = f"🔵 H-{selisih}"
+            else:
+                status = "🟢 AMAN"
 
+            writer.writerow([
+                lokasi,
+                sku,
+                produk,
+                upc,
+                expired,
+                status,
+                pic,
+                input_date
+            ])
+
+    with open(filename, "rb") as f:
+        await update.message.reply_document(f)
+
+    os.remove(filename)
 # ================= HAPUS =================
 
 async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -459,5 +464,6 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
 
