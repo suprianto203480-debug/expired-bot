@@ -128,7 +128,8 @@ def get_monthly_report(year,month):
 def main_menu():
     keyboard = [
         [KeyboardButton("➕ Input Produk"), KeyboardButton("📄 Export Harian")],
-        [KeyboardButton("📊 Rekap Bulanan CSV"), KeyboardButton("ℹ️ Help")],
+        [KeyboardButton("📊 Rekap Bulanan CSV"), KeyboardButton("🗑 Hapus Item")],
+        [KeyboardButton("ℹ️ Help")],
         [KeyboardButton("🏠 Menu Utama")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -260,6 +261,19 @@ async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "Ketik SKU / Nama / UPC:"
     )
     return CARI_PRODUK
+    def get_recent_logs():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, nama_produk, expired_date
+        FROM expired_logs
+        ORDER BY tanggal_input DESC
+        LIMIT 10
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
 
 # ================= EXPORT =================
 
@@ -374,6 +388,39 @@ async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(f)
 
     os.remove(filename)
+    async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = get_recent_logs()
+
+    if not data:
+        await update.message.reply_text("Tidak ada data untuk dihapus.")
+        return
+
+    keyboard = []
+    for row in data:
+        id_, nama_produk, expired = row
+        text = f"{nama_produk} | {expired}"
+        keyboard.append([
+            InlineKeyboardButton(text, callback_data=f"hapus_{id_}")
+        ])
+
+    await update.message.reply_text(
+        "🗑 Pilih item yang ingin dihapus:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    item_id = query.data.split("_")[1]
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM expired_logs WHERE id=%s", (item_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    await query.edit_message_text("✅ Item berhasil dihapus.")
 # ================= MAIN =================
 
 if __name__=="__main__":
@@ -405,10 +452,13 @@ if __name__=="__main__":
     app.add_handler(MessageHandler(filters.Regex("^📄 Export Harian$"),export_harian))
     app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"),export_bulanan))
     app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"),help_menu))
+    app.add_handler(MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start))
+    app.add_handler(CallbackQueryHandler(hapus_konfirmasi, pattern="^hapus_"))
     app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"),menu_utama))
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
 
 
