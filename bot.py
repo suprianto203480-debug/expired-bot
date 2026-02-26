@@ -281,6 +281,7 @@ async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = get_today_expired()
+
     if not data:
         await update.message.reply_text("Tidak ada data input hari ini.")
         return
@@ -288,9 +289,47 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now().strftime("%Y-%m-%d")
     filename = f"expired_{today}.txt"
 
+    # HEADER RAPII
+    header = f"""========================================================
+LAPORAN DAILY CEK PRODUK MENDEKATI EXPIRED
+DEPT            : DAIRY & FROZEN
+TANGGAL UPDATE  : {today}
+========================================================
+
+"""
+
+    lines = [header]
+
+    for row in data:
+        lokasi, sku, produk, upc, expired, pic, input_date = row
+
+        selisih = (expired - date.today()).days
+
+        if selisih < 0:
+            status = "🔴 SUDAH EXPIRED"
+        elif selisih == 0:
+            status = "🟠 EXPIRED HARI INI"
+        elif selisih == 1:
+            status = "🟡 H-1"
+        elif 2 <= selisih <= 7:
+            status = f"🔵 H-{selisih}"
+        else:
+            status = "🟢 AMAN"
+
+        lines.append(
+f"""Lokasi     : {lokasi}
+SKU        : {sku}
+Produk     : {produk}
+UPC        : {upc}
+Expired    : {expired} | {status}
+PIC        : {pic}
+Input Date : {input_date}
+--------------------------------------------------------
+"""
+        )
+
     with open(filename, "w", encoding="utf-8") as f:
-        for row in data:
-            f.write(str(row) + "\n")
+        f.write("\n".join(lines))
 
     with open(filename, "rb") as f:
         await update.message.reply_document(f)
@@ -390,3 +429,4 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
