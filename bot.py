@@ -285,7 +285,6 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for row in data:
         lokasi, sku, produk, upc, expired, pic, input_date = row
 
-        # Hitung selisih hari expired
         selisih = (expired - date.today()).days
 
         if selisih < 0:
@@ -304,7 +303,7 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"SKU        : {sku}",
             f"Produk     : {produk}",
             f"UPC        : {upc}",
-            f"Expired    : {expired} {status}",
+            f"Expired    : {expired} | {status}",
             f"PIC        : {pic}",
             f"Input Date : {input_date}",
             "-" * 50
@@ -312,6 +311,35 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with open(filename, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
+
+    with open(filename, "rb") as f:
+        await update.message.reply_document(f)
+
+    os.remove(filename)
+
+
+async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    now = datetime.now()
+    data = get_monthly_report(now.year, now.month)
+
+    if not data:
+        await update.message.reply_text("Tidak ada data bulan ini.")
+        return
+
+    filename = f"rekap_{now.year}_{now.month}.csv"
+
+    with open(filename, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "Lokasi",
+            "SKU",
+            "Produk",
+            "UPC",
+            "Expired",
+            "PIC",
+            "Tanggal Input"
+        ])
+        writer.writerows(data)
 
     with open(filename, "rb") as f:
         await update.message.reply_document(f)
@@ -352,6 +380,7 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
 
 
