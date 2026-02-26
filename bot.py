@@ -211,6 +211,30 @@ async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     await query.edit_message_text("✅ Item berhasil dihapus.")
+    # ================= EXPORT HARIAN =================
+async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT nama_item, tanggal_expired
+        FROM items
+        WHERE tanggal_expired = CURRENT_DATE
+        ORDER BY nama_item ASC
+    """)
+
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        await update.message.reply_text("📄 Tidak ada item expired hari ini.")
+        return
+
+    text = "📄 *Export Harian*\n\n"
+    for i, row in enumerate(rows, 1):
+        text += f"{i}. {row[0]} - {row[1]}\n"
+
+    await update.message.reply_text(text)
 
 # ================= MAIN =================
 
@@ -228,3 +252,4 @@ if __name__ == "__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
