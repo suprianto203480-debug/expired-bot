@@ -336,26 +336,56 @@ Input Date : {input_date}
 
     os.remove(filename)
 
-async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    now = datetime.now()
-    data = get_monthly_report(now.year, now.month)
+async def export_rekap_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    conn = get_connection()
+    cursor = conn.cursor()
 
-    if not data:
+    today = datetime.now()
+    bulan = today.month
+    tahun = today.year
+
+    cursor.execute("""
+        SELECT tanggal_input, sku, deskripsi, upc, lokasi, expired_date, status, user_input
+        FROM expired_products
+        WHERE EXTRACT(MONTH FROM tanggal_input) = %s
+        AND EXTRACT(YEAR FROM tanggal_input) = %s
+        ORDER BY tanggal_input ASC
+    """, (bulan, tahun))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
         await update.message.reply_text("Tidak ada data bulan ini.")
         return
 
-    filename = f"rekap_{now.year}_{now.month}.csv"
+    output = io.StringIO()
+    writer = csv.writer(output)
 
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Lokasi","SKU","Produk","UPC","Expired","PIC","Tanggal Input"])
-        for row in data:
-            writer.writerow(row)
+    # Header kolom
+    writer.writerow([
+        "Tanggal Input",
+        "SKU",
+        "Deskripsi",
+        "UPC",
+        "Lokasi",
+        "Expired Date",
+        "Status",
+        "User Input"
+    ])
 
-    with open(filename, "rb") as f:
-        await update.message.reply_document(f)
+    for row in rows:
+        writer.writerow(row)
 
-    os.remove(filename)
+    output.seek(0)
+
+    filename = f"rekap_bulanan_{bulan}_{tahun}.csv"
+
+    await update.message.reply_document(
+        document=io.BytesIO(output.getvalue().encode()),
+        filename=filename,
+        caption=f"Rekap Bulanan {bulan}-{tahun}"
+    )
 
 # ================= HAPUS =================
 
@@ -429,4 +459,5 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
