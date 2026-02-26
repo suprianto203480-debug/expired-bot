@@ -330,16 +330,45 @@ async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with open(filename, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
+
+        # Tambah kolom STATUS
         writer.writerow([
             "Lokasi",
             "SKU",
             "Produk",
             "UPC",
             "Expired",
+            "Status",
             "PIC",
             "Tanggal Input"
         ])
-        writer.writerows(data)
+
+        for row in data:
+            lokasi, sku, produk, upc, expired, pic, input_date = row
+
+            selisih = (expired - date.today()).days
+
+            if selisih < 0:
+                status = "🔴 SUDAH EXPIRED"
+            elif selisih == 0:
+                status = "🟠 HARI INI"
+            elif selisih == 1:
+                status = "🟡 H-1"
+            elif 2 <= selisih <= 7:
+                status = f"🔵 H-{selisih}"
+            else:
+                status = "🟢 AMAN"
+
+            writer.writerow([
+                lokasi,
+                sku,
+                produk,
+                upc,
+                expired,
+                status,
+                pic,
+                input_date
+            ])
 
     with open(filename, "rb") as f:
         await update.message.reply_document(f)
@@ -380,6 +409,7 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
 
 
