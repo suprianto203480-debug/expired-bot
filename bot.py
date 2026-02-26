@@ -288,16 +288,16 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Hitung selisih hari expired
         selisih = (expired - date.today()).days
 
-       if selisih < 0:
-    status = "🔴 SUDAH EXPIRED"
-elif selisih == 0:
-    status = "🟠 EXPIRED HARI INI"
-elif selisih == 1:
-    status = "🟡 H-1"
-elif 2 <= selisih <= 7:
-    status = f"🔵 H-{selisih}"
-else:
-    status = "🟢 AMAN"
+        if selisih < 0:
+            status = "🔴 SUDAH EXPIRED"
+        elif selisih == 0:
+            status = "🟠 EXPIRED HARI INI"
+        elif selisih == 1:
+            status = "🟡 H-1"
+        elif 2 <= selisih <= 7:
+            status = f"🔵 H-{selisih}"
+        else:
+            status = "🟢 AMAN"
 
         lines += [
             f"Lokasi     : {lokasi}",
@@ -352,6 +352,7 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
 
 
