@@ -127,9 +127,16 @@ def get_recent_logs():
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT id, nama_produk, expired_date
-        FROM expired_logs
-        ORDER BY tanggal_input DESC
+        SELECT 
+            e.id,
+            l.nama_lokasi,
+            p.sku,
+            e.upc,
+            e.expired_date
+        FROM expired_logs e
+        LEFT JOIN products p ON p.upc::text = e.upc::text
+        LEFT JOIN locations l ON l.id::text = e.lokasi::text
+        ORDER BY e.tanggal_input DESC
         LIMIT 10
     """)
     rows = cur.fetchall()
@@ -402,7 +409,7 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = []
     for row in data:
-        id_, nama_produk, expired = row
+    id_, sku, upc, expired = row
         keyboard.append([
             InlineKeyboardButton(f"{nama_produk} | {expired}", callback_data=f"hapus_{id_}")
         ])
