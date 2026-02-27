@@ -437,7 +437,69 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+
 async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    item_id = query.data.split("_")[1]
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT l.nama_lokasi, p.sku, e.upc, e.nama_produk, e.expired_date, e.pic
+        FROM expired_logs e
+        LEFT JOIN products p ON p.upc::text = e.upc::text
+        LEFT JOIN locations l ON l.id::text = e.lokasi::text
+        WHERE e.id=%s
+    """, (item_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row:
+        await query.edit_message_text("Data tidak ditemukan.")
+        return
+
+    lokasi, sku, upc, produk, expired, pic = row
+
+    selisih = (expired - date.today()).days
+
+    if selisih < 0:
+        status = "🔴 SUDAH EXPIRED"
+    elif selisih == 0:
+        status = "🟠 HARI INI"
+    elif selisih == 1:
+        status = "🟡 H-1"
+    elif 2 <= selisih <= 7:
+        status = f"🔵 H-{selisih}"
+    else:
+        status = "🟢 AMAN"
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"confirmhapus_{item_id}"),
+            InlineKeyboardButton("❌ Batal", callback_data="batalhapus")
+        ]
+    ]
+
+    await query.edit_message_text(
+        f"""📦 DETAIL PRODUK
+
+Lokasi   : {lokasi}
+SKU      : {sku}
+UPC      : {upc}
+Produk   : {produk}
+Expired  : {expired}
+Status   : {status}
+PIC      : {pic}
+
+Yakin ingin menghapus data ini?""",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def confirm_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
@@ -451,6 +513,13 @@ async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     await query.edit_message_text("✅ Item berhasil dihapus.")
+
+
+async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    await hapus_item_start(update, context)
 
 # ================= MAIN =================
 
@@ -483,7 +552,8 @@ if __name__=="__main__":
     app.add_handler(MessageHandler(filters.Regex("^📄 Export Harian$"),export_harian))
     app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"),export_bulanan))
     app.add_handler(MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start))
-    app.add_handler(CallbackQueryHandler(hapus_konfirmasi, pattern="^hapus_"))
+    app.add_handler(CallbackQueryHandler(confirm_hapus, pattern="^confirmhapus_"))
+    app.add_handler(CallbackQueryHandler(batal_hapus, pattern="^batalhapus$"))
     app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"),help_menu))
     app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"),menu_utama))
 
