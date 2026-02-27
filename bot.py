@@ -238,14 +238,14 @@ async def pilih_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     upc = query.data.split("_")[1]
     selected = next(p for p in context.user_data["last"] if p["upc"]==upc)
     context.user_data["produk"]=selected
-    await query.edit_message_text("Masukkan tanggal expired (YYYY-MM-DD):")
+    await query.edit_message_text("Masukkan tanggal expired (DD-MM-YYYY):")
     return INPUT_EXPIRED
 
 async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         datetime.strptime(update.message.text,"%Y-%m-%d")
     except:
-        await update.message.reply_text("Format salah. Gunakan YYYY-MM-DD")
+        await update.message.reply_text("Format salah. Gunakan DD-MM-YYYY")
         return INPUT_EXPIRED
 
     p = context.user_data["produk"]
@@ -464,6 +464,7 @@ if __name__=="__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
 
 
 
