@@ -242,20 +242,21 @@ async def pilih_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return INPUT_EXPIRED
 
 async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
-   try:
-    expired_obj = datetime.strptime(update.message.text,"%d%m%y").date()
-except:
-    await update.message.reply_text("Format salah. Gunakan ddmmyy")
-    return INPUT_EXPIRED
+    try:
+        expired_obj = datetime.strptime(update.message.text, "%d%m%y").date()
+    except:
+        await update.message.reply_text("Format salah. Gunakan ddmmyy")
+        return INPUT_EXPIRED
+
     p = context.user_data["produk"]
 
     save_expired(
-    context.user_data["lokasi"],
-    p["upc"],
-    p["nama_produk"],
-    expired_obj,
-    context.user_data["pic"]
-)
+        context.user_data["lokasi"],
+        p["upc"],
+        p["nama_produk"],
+        expired_obj,
+        context.user_data["pic"]
+    )
 
     keyboard = [
         [KeyboardButton("➕ Tambah Produk Lagi")],
