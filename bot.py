@@ -408,28 +408,29 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     keyboard = []
-   for row in data:
-    id_, lokasi, sku, upc, expired = row
 
-    selisih = (expired - date.today()).days
+    for row in data:
+        id_, lokasi, sku, upc, expired = row
 
-    if selisih < 0:
-        status = "🔴 EXPIRED"
-    elif selisih == 0:
-        status = "🟠 HARI INI"
-    elif selisih == 1:
-        status = "🟡 H-1"
-    elif 2 <= selisih <= 7:
-        status = f"🔵 H-{selisih}"
-    else:
-        status = "🟢 AMAN"
+        selisih = (expired - date.today()).days
 
-    keyboard.append([
-        InlineKeyboardButton(
-            f"{lokasi} - {sku} - {upc} - {expired} - {status}",
-            callback_data=f"hapus_{id_}"
-        )
-    ])
+        if selisih < 0:
+            status = "🔴 EXPIRED"
+        elif selisih == 0:
+            status = "🟠 HARI INI"
+        elif selisih == 1:
+            status = "🟡 H-1"
+        elif 2 <= selisih <= 7:
+            status = f"🔵 H-{selisih}"
+        else:
+            status = "🟢 AMAN"
+
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{lokasi} - {sku} - {upc} - {expired} - {status}",
+                callback_data=f"hapus_{id_}"
+            )
+        ])
 
     await update.message.reply_text(
         "🗑 Pilih item yang ingin dihapus:",
