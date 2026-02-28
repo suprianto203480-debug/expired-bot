@@ -88,10 +88,6 @@ def get_today_expired():
     conn = get_connection()
     cur = conn.cursor()
 
-    now = datetime.now()
-    start_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_day = start_day + timedelta(days=1)
-
     cur.execute("""
         SELECT l.nama_lokasi,
                p.sku,
@@ -103,10 +99,9 @@ def get_today_expired():
         FROM expired_logs e
         LEFT JOIN locations l ON l.id::text = e.lokasi::text
         LEFT JOIN products p ON p.upc::text = e.upc::text
-        WHERE e.tanggal_input >= %s
-          AND e.tanggal_input < %s
+        WHERE e.tanggal_input::date = CURRENT_DATE
         ORDER BY l.nama_lokasi, p.sku
-    """, (start_day, end_day))
+    """)
 
     rows = cur.fetchall()
     cur.close()
