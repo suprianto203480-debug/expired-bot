@@ -445,12 +445,62 @@ async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = get_connection()
     cur = conn.cursor()
+    cur.execute("""
+        SELECT l.nama_lokasi, p.sku, e.upc, e.nama_produk, e.expired_date, e.pic
+        FROM expired_logs e
+        LEFT JOIN products p ON p.upc::text = e.upc::text
+        LEFT JOIN locations l ON l.id::text = e.lokasi::text
+        WHERE e.id=%s
+    """, (item_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row:
+        await query.edit_message_text("Data tidak ditemukan.")
+        return
+
+    lokasi, sku, upc, produk, expired, pic = row
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"confirmhapus_{item_id}"),
+            InlineKeyboardButton("❌ Batal", callback_data="batalhapus")
+        ]
+    ]
+
+    await query.edit_message_text(
+        f"""📦 DETAIL PRODUK
+
+Lokasi   : {lokasi}
+SKU      : {sku}
+UPC      : {upc}
+Produk   : {produk}
+Expired  : {expired}
+PIC      : {pic}
+
+Yakin ingin menghapus data ini?""",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+async def confirm_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    item_id = query.data.split("_")[1]
+
+    conn = get_connection()
+    cur = conn.cursor()
     cur.execute("DELETE FROM expired_logs WHERE id=%s", (item_id,))
     conn.commit()
     cur.close()
     conn.close()
 
     await query.edit_message_text("✅ Item berhasil dihapus.")
+async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    await query.edit_message_text("❌ Penghapusan dibatalkan.")
 
 # ================= MAIN =================
 
