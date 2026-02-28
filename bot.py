@@ -580,7 +580,7 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"), help_menu))
     app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama))
 
-    if __name__ == "__main__":
+ if __name__ == "__main__":
     print("✅ BOT FINAL STABLE RUNNING")
     check_column_type()
     app.run_polling()
