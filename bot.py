@@ -287,56 +287,76 @@ async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ================= EXPORT =================
 
 async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = get_today_expired()
+
+    import pytz
+    from datetime import datetime, date
+
+    tz = pytz.timezone("Asia/Jakarta")
+    today = datetime.now(tz).date()
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT 
+            l.nama_lokasi,
+            p.sku,
+            e.nama_produk,
+            e.upc,
+            e.expired_date,
+            e.pic,
+            e.tanggal_input
+        FROM expired_logs e
+        LEFT JOIN locations l ON l.id::text = e.lokasi::text
+        LEFT JOIN products p ON p.upc::text = e.upc::text
+        WHERE DATE(e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
+        ORDER BY e.expired_date ASC
+    """, (today,))
+
+    data = cur.fetchall()
+    cur.close()
+    conn.close()
 
     if not data:
         await update.message.reply_text("Tidak ada data input hari ini.")
         return
 
-    today = datetime.now().strftime("%Y-%m-%d")
     filename = f"expired_{today}.txt"
 
-    # HEADER RAPII
-    header = f"""========================================================
-LAPORAN DAILY CEK PRODUK MENDEKATI EXPIRED
-DEPT            : DAIRY & FROZEN
-TANGGAL UPDATE  : {today}
-========================================================
-
-"""
-
-    lines = [header]
-
-    for row in data:
-        lokasi, sku, produk, upc, expired, pic, input_date = row
-
-        selisih = (expired - date.today()).days
-
-        if selisih < 0:
-            status = "🔴 SUDAH EXPIRED"
-        elif selisih == 0:
-            status = "🟠 EXPIRED HARI INI"
-        elif selisih == 1:
-            status = "🟡 H-1"
-        elif 2 <= selisih <= 7:
-            status = f"🔵 H-{selisih}"
-        else:
-            status = "🟢 AMAN"
-
-        lines.append(
-f"""Lokasi     : {lokasi}
-SKU        : {sku}
-Produk     : {produk}
-UPC        : {upc}
-Expired    : {expired} | {status}
-PIC        : {pic}
-Input Date : {input_date}
---------------------------------------------------------
-"""
-        )
-
     with open(filename, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+
+        # HEADER SESUAI FORMAT KAMU
+        f.write("========================================================\n")
+        f.write("       LAPORAN DAILY CEK PRODUK MENDEKATI EXPIRED\n")
+        f.write("STORE        : HPM JEMBER\n")
+        f.write("DEPT         : DAIRY & FROZEN\n")
+        f.write(f"TANGGAL UPDATE  : {today}\n")
+        f.write("========================================================\n\n")
+
+        for row in data:
+            lokasi, sku, produk, upc, expired, pic, input_date = row
+
+            selisih = (expired - today).days
+
+            if selisih < 0:
+                status = "🔴 SUDAH EXPIRED"
+            elif selisih == 0:
+                status = "🟠 EXPIRED HARI INI"
+            elif selisih == 1:
+                status = "🟡 H-1"
+            elif 2 <= selisih <= 7:
+                status = f"🔵 H-{selisih}"
+            else:
+                status = "🟢 AMAN"
+
+            f.write(f"Lokasi     : {lokasi}\n")
+            f.write(f"SKU        : {sku}\n")
+            f.write(f"Produk     : {produk}\n")
+            f.write(f"UPC        : {upc}\n")
+            f.write(f"Expired    : {expired} | {status}\n")
+            f.write(f"PIC        : {pic}\n")
+            f.write(f"Input Date : {input_date.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("--------------------------------------------------------\n")
 
     with open(filename, "rb") as f:
         await update.message.reply_document(f)
