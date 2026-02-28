@@ -146,6 +146,19 @@ def get_recent_logs():
     cur.close()
     conn.close()
     return rows
+def check_column_type():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_name = 'expired_logs'
+    """)
+    rows = cur.fetchall()
+    for row in rows:
+        print(row)
+    cur.close()
+    conn.close()
 
 # ================= MENU =================
 
@@ -567,5 +580,7 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"), help_menu))
     app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama))
 
+    if __name__ == "__main__":
     print("✅ BOT FINAL STABLE RUNNING")
+    check_column_type()
     app.run_polling()
