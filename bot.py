@@ -82,9 +82,26 @@ def save_expired(lokasi_id, upc, nama_produk, expired_date, pic):
     cur.close()
     conn.close()
 
+from datetime import datetime, timedelta
+
 def get_today_expired():
     conn = get_connection()
     cur = conn.cursor()
+
+    # WIB = UTC+7
+    wib_offset = timedelta(hours=7)
+
+    now_utc = datetime.utcnow()
+    now_wib = now_utc + wib_offset
+
+    # Jam 00:00:00 WIB
+    start_wib = now_wib.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_wib = start_wib + timedelta(days=1)
+
+    # Convert kembali ke UTC (karena DB simpan UTC)
+    start_utc = start_wib - wib_offset
+    end_utc = end_wib - wib_offset
+
     cur.execute("""
         SELECT l.nama_lokasi,
                p.sku,
@@ -96,10 +113,11 @@ def get_today_expired():
         FROM expired_logs e
         LEFT JOIN locations l ON l.id::text = e.lokasi::text
         LEFT JOIN products p ON p.upc::text = e.upc::text
-        WHERE (e.tanggal_input AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jakarta')::date
-              = (NOW() AT TIME ZONE 'Asia/Jakarta')::date
+        WHERE e.tanggal_input >= %s
+          AND e.tanggal_input < %s
         ORDER BY l.nama_lokasi, p.sku
-    """)
+    """, (start_utc, end_utc))
+
     rows = cur.fetchall()
     cur.close()
     conn.close()
