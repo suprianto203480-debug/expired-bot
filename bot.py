@@ -88,19 +88,9 @@ def get_today_expired():
     conn = get_connection()
     cur = conn.cursor()
 
-    # WIB = UTC+7
-    wib_offset = timedelta(hours=7)
-
-    now_utc = datetime.utcnow()
-    now_wib = now_utc + wib_offset
-
-    # Jam 00:00:00 WIB
-    start_wib = now_wib.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_wib = start_wib + timedelta(days=1)
-
-    # Convert kembali ke UTC (karena DB simpan UTC)
-    start_utc = start_wib - wib_offset
-    end_utc = end_wib - wib_offset
+    now = datetime.now()
+    start_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_day = start_day + timedelta(days=1)
 
     cur.execute("""
         SELECT l.nama_lokasi,
@@ -116,7 +106,7 @@ def get_today_expired():
         WHERE e.tanggal_input >= %s
           AND e.tanggal_input < %s
         ORDER BY l.nama_lokasi, p.sku
-    """, (start_utc, end_utc))
+    """, (start_day, end_day))
 
     rows = cur.fetchall()
     cur.close()
