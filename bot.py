@@ -82,12 +82,9 @@ def save_expired(lokasi_id, upc, nama_produk, expired_date, pic):
     cur.close()
     conn.close()
 
-from datetime import datetime, timedelta
-
 def get_today_expired():
     conn = get_connection()
     cur = conn.cursor()
-
     cur.execute("""
         SELECT l.nama_lokasi,
                p.sku,
@@ -99,10 +96,10 @@ def get_today_expired():
         FROM expired_logs e
         LEFT JOIN locations l ON l.id::text = e.lokasi::text
         LEFT JOIN products p ON p.upc::text = e.upc::text
-        WHERE e.tanggal_input::date = CURRENT_DATE
+        WHERE (e.tanggal_input AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jakarta')::date
+              = (NOW() AT TIME ZONE 'Asia/Jakarta')::date
         ORDER BY l.nama_lokasi, p.sku
     """)
-
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -146,19 +143,6 @@ def get_recent_logs():
     cur.close()
     conn.close()
     return rows
-def check_column_type():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT column_name, data_type
-        FROM information_schema.columns
-        WHERE table_name = 'expired_logs'
-    """)
-    rows = cur.fetchall()
-    for row in rows:
-        print(row)
-    cur.close()
-    conn.close()
 
 # ================= MENU =================
 
@@ -580,7 +564,5 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"), help_menu))
     app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama))
 
- if __name__ == "__main__":
     print("✅ BOT FINAL STABLE RUNNING")
-    check_column_type()
     app.run_polling()
