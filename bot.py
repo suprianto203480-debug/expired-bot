@@ -519,7 +519,44 @@ async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    await hapus_item_start(update, context)
+    # Hapus pesan detail
+    await query.edit_message_text("❌ Penghapusan dibatalkan.\n\nMemuat ulang daftar...")
+
+    data = get_recent_logs()
+
+    if not data:
+        await query.message.reply_text("Tidak ada data untuk dihapus.")
+        return
+
+    keyboard = []
+
+    for row in data:
+        id_, lokasi, sku, upc, expired = row
+
+        selisih = (expired - date.today()).days
+
+        if selisih < 0:
+            status = "🔴 EXPIRED"
+        elif selisih == 0:
+            status = "🟠 HARI INI"
+        elif selisih == 1:
+            status = "🟡 H-1"
+        elif 2 <= selisih <= 7:
+            status = f"🔵 H-{selisih}"
+        else:
+            status = "🟢 AMAN"
+
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{lokasi} - {sku} - {upc} - {expired} - {status}",
+                callback_data=f"hapus_{id_}"
+            )
+        ])
+
+    await query.message.reply_text(
+        "🗑 Pilih item yang ingin dihapus:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 # ================= MAIN =================
 
