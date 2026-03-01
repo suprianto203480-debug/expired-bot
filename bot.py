@@ -317,8 +317,8 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
     if not data:
-        await update.message.reply_text("Tidak ada data input hari ini.")
-        return
+    await update.effective_message.reply_text("Tidak ada data input hari ini.")
+    return
 
     filename = f"expired_{today}.txt"
 
@@ -363,10 +363,10 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             f.write("--------------------------------------------------------\n")
 
-    with open(filename, "rb") as f:
-        await update.message.reply_document(document=f)
+   with open(filename, "rb") as f:
+    await update.effective_message.reply_document(document=f)
 
-    os.remove(filename)
+os.remove(filename)
 # ================= EXPORT BULANAN =================
 async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -376,8 +376,8 @@ async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = get_monthly_report(now.year, now.month)
 
     if not data:
-        await update.message.reply_text("Tidak ada data bulan ini.")
-        return
+    await update.effective_message.reply_text("Tidak ada data bulan ini.")
+    return
 
     filename = f"rekap_{now.year}_{now.month}.csv"
 
@@ -427,8 +427,10 @@ async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 input_date.strftime('%Y-%m-%d %H:%M:%S') if input_date else "-"
             ])
 
-    with open(filename, "rb") as f:
-        await update.message.reply_document(document=f)
+   with open(filename, "rb") as f:
+    await update.effective_message.reply_document(document=f)
+
+os.remove(filename)
 
     os.remove(filename)
 # ================= HAPUS =================
