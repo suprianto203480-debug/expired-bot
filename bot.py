@@ -308,7 +308,7 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 FROM expired_logs e
                 LEFT JOIN locations l ON l.id::text = e.lokasi::text
                 LEFT JOIN products p ON p.upc::text = e.upc::text
-                WHERE DATE(e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
+                WHERE DATE(e.tanggal_input) = %s
                 ORDER BY e.expired_date ASC
             """, (today,))
             data = cur.fetchall()
