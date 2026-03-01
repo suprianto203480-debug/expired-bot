@@ -284,15 +284,150 @@ async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return CARI_PRODUK
 
-# ================= EXPORT HARIAN =================
+# ================= TAMBAHKAN IMPORT INI DI BAGIAN ATAS =================
+import pytz
+
+# ================= EXPORT HARIAN (sudah benar, hanya ditambahkan try-except) =================
 async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        tz = pytz.timezone("Asia/Jakarta")
+        today = datetime.now(tz).date()
 
-    tz = pytz.timezone("Asia/Jakarta")
-    today = datetime.now(tz).date()
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT 
+                    l.nama_lokasi,
+                    p.sku,
+                    e.nama_produk,
+                    e.upc,
+                    e.expired_date,
+                    e.pic,
+                    e.tanggal_input
+                FROM expired_logs e
+                LEFT JOIN locations l ON l.id::text = e.lokasi::text
+                LEFT JOIN products p ON p.upc::text = e.upc::text
+                WHERE DATE(e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
+                ORDER BY e.expired_date ASC
+            """, (today,))
+            data = cur.fetchall()
+        finally:
+            cur.close()
+            conn.close()
 
+        if not data:
+            await update.effective_message.reply_text("Tidak ada data input hari ini.")
+            return
+
+        filename = f"expired_{today}.txt"
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write("========================================================\n")
+            f.write("       LAPORAN DAILY CEK PRODUK MENDEKATI EXPIRED\n")
+            f.write("STORE        : HPM JEMBER\n")
+            f.write("DEPT         : DAIRY & FROZEN\n")
+            f.write(f"TANGGAL UPDATE : {today}\n")
+            f.write("========================================================\n\n")
+
+            for row in data:
+                lokasi, sku, produk, upc, expired, pic, input_date = row
+                if isinstance(expired, datetime):
+                    expired = expired.date()
+                selisih = (expired - today).days
+                if selisih < 0:
+                    status = "🔴 SUDAH EXPIRED"
+                elif selisih == 0:
+                    status = "🟠 EXPIRED HARI INI"
+                elif selisih == 1:
+                    status = "🟡 H-1"
+                elif 2 <= selisih <= 7:
+                    status = f"🔵 H-{selisih}"
+                else:
+                    status = "🟢 AMAN"
+
+                f.write(f"Lokasi     : {lokasi or '-'}\n")
+                f.write(f"SKU        : {sku or '-'}\n")
+                f.write(f"Produk     : {produk or '-'}\n")
+                f.write(f"UPC        : {upc or '-'}\n")
+                f.write(f"Expired    : {expired} | {status}\n")
+                f.write(f"PIC        : {pic or '-'}\n")
+                if input_date:
+                    f.write(f"Input Date : {input_date.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("--------------------------------------------------------\n")
+
+        with open(filename, "rb") as f:
+            await update.effective_message.reply_document(document=f)
+        os.remove(filename)
+
+    except Exception as e:
+        await update.effective_message.reply_text(f"❌ Gagal export harian: {e}")
+
+# ================= EXPORT BULANAN (diperbaiki dengan timezone & error handling) =================
+async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        tz = pytz.timezone("Asia/Jakarta")
+        now = datetime.now(tz)
+
+        # Ambil data menggunakan fungsi yang sudah diperbaiki (dengan timezone)
+        data = get_monthly_report(now.year, now.month)
+
+        if not data:
+            await update.effective_message.reply_text("Tidak ada data bulan ini.")
+            return
+
+        filename = f"rekap_{now.year}_{now.month}.csv"
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Lokasi",
+                "SKU",
+                "Produk",
+                "UPC",
+                "Expired",
+                "Status",
+                "PIC",
+                "Tanggal Input"
+            ])
+
+            today = now.date()
+            for row in data:
+                lokasi, sku, produk, upc, expired, pic, input_date = row
+                if isinstance(expired, datetime):
+                    expired = expired.date()
+                selisih = (expired - today).days
+                if selisih < 0:
+                    status = "🔴 SUDAH EXPIRED"
+                elif selisih == 0:
+                    status = "🟠 HARI INI"
+                elif selisih == 1:
+                    status = "🟡 H-1"
+                elif 2 <= selisih <= 7:
+                    status = f"🔵 H-{selisih}"
+                else:
+                    status = "🟢 AMAN"
+
+                writer.writerow([
+                    lokasi or "-",
+                    sku or "-",
+                    produk or "-",
+                    upc or "-",
+                    expired,
+                    status,
+                    pic or "-",
+                    input_date.strftime('%Y-%m-%d %H:%M:%S') if input_date else "-"
+                ])
+
+        with open(filename, "rb") as f:
+            await update.effective_message.reply_document(document=f)
+        os.remove(filename)
+
+    except Exception as e:
+        await update.effective_message.reply_text(f"❌ Gagal rekap bulanan: {e}")
+
+# ================= FUNGSI GET_MONTHLY_REPORT (diperbaiki dengan timezone) =================
+def get_monthly_report(year, month):
     conn = get_connection()
     cur = conn.cursor()
-
     try:
         cur.execute("""
             SELECT 
@@ -306,134 +441,14 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
             FROM expired_logs e
             LEFT JOIN locations l ON l.id::text = e.lokasi::text
             LEFT JOIN products p ON p.upc::text = e.upc::text
-            WHERE DATE(e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
-            ORDER BY e.expired_date ASC
-        """, (today,))
-
-        data = cur.fetchall()
-
+            WHERE EXTRACT(YEAR FROM e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
+              AND EXTRACT(MONTH FROM e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
+            ORDER BY e.tanggal_input
+        """, (year, month))
+        return cur.fetchall()
     finally:
         cur.close()
         conn.close()
-
-    # ✅ FIX INDENT DI SINI
-    if not data:
-        await update.effective_message.reply_text("Tidak ada data input hari ini.")
-        return
-
-    filename = f"expired_{today}.txt"
-
-    with open(filename, "w", encoding="utf-8") as f:
-
-        f.write("========================================================\n")
-        f.write("       LAPORAN DAILY CEK PRODUK MENDEKATI EXPIRED\n")
-        f.write("STORE        : HPM JEMBER\n")
-        f.write("DEPT         : DAIRY & FROZEN\n")
-        f.write(f"TANGGAL UPDATE : {today}\n")
-        f.write("========================================================\n\n")
-
-        for row in data:
-            lokasi, sku, produk, upc, expired, pic, input_date = row
-
-            if isinstance(expired, datetime):
-                expired = expired.date()
-
-            selisih = (expired - today).days
-
-            if selisih < 0:
-                status = "🔴 SUDAH EXPIRED"
-            elif selisih == 0:
-                status = "🟠 EXPIRED HARI INI"
-            elif selisih == 1:
-                status = "🟡 H-1"
-            elif 2 <= selisih <= 7:
-                status = f"🔵 H-{selisih}"
-            else:
-                status = "🟢 AMAN"
-
-            f.write(f"Lokasi     : {lokasi or '-'}\n")
-            f.write(f"SKU        : {sku or '-'}\n")
-            f.write(f"Produk     : {produk or '-'}\n")
-            f.write(f"UPC        : {upc or '-'}\n")
-            f.write(f"Expired    : {expired} | {status}\n")
-            f.write(f"PIC        : {pic or '-'}\n")
-
-            if input_date:
-                f.write(f"Input Date : {input_date.strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-            f.write("--------------------------------------------------------\n")
-
-    # ✅ FIX INDENT DI SINI
-    with open(filename, "rb") as f:
-        await update.effective_message.reply_document(document=f)
-
-    os.remove(filename)
-# ================= EXPORT BULANAN =================
-async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    tz = pytz.timezone("Asia/Jakarta")
-    now = datetime.now(tz)
-
-    data = get_monthly_report(now.year, now.month)
-
-    # ✅ FIX INDENT DI SINI
-    if not data:
-        await update.effective_message.reply_text("Tidak ada data bulan ini.")
-        return
-
-    filename = f"rekap_{now.year}_{now.month}.csv"
-
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-
-        writer.writerow([
-            "Lokasi",
-            "SKU",
-            "Produk",
-            "UPC",
-            "Expired",
-            "Status",
-            "PIC",
-            "Tanggal Input"
-        ])
-
-        today = now.date()
-
-        for row in data:
-            lokasi, sku, produk, upc, expired, pic, input_date = row
-
-            if isinstance(expired, datetime):
-                expired = expired.date()
-
-            selisih = (expired - today).days
-
-            if selisih < 0:
-                status = "🔴 SUDAH EXPIRED"
-            elif selisih == 0:
-                status = "🟠 HARI INI"
-            elif selisih == 1:
-                status = "🟡 H-1"
-            elif 2 <= selisih <= 7:
-                status = f"🔵 H-{selisih}"
-            else:
-                status = "🟢 AMAN"
-
-            writer.writerow([
-                lokasi or "-",
-                sku or "-",
-                produk or "-",
-                upc or "-",
-                expired,
-                status,
-                pic or "-",
-                input_date.strftime('%Y-%m-%d %H:%M:%S') if input_date else "-"
-            ])
-
-    # ✅ FIX INDENT DI SINI
-    with open(filename, "rb") as f:
-        await update.effective_message.reply_document(document=f)
-
-    os.remove(filename)
 # ================= HAPUS =================
 
 async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
