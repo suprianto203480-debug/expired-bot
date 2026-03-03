@@ -198,32 +198,10 @@ async def cancel_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     locations = get_locations()
-    if not locations:
-        await update.message.reply_text("Tidak ada lokasi tersedia.")
-        return ConversationHandler.END
-
-    keyboard = []
-    row = []
-
-    for i, loc in enumerate(locations, 1):
-        row.append(InlineKeyboardButton(
-            loc[1],
-            callback_data=f"lokasi_{loc[0]}"
-        ))
-
-        # 2 tombol per baris (ubah 3 kalau mau lebih padat)
-        if i % 2 == 0:
-            keyboard.append(row)
-            row = []
-
-    if row:
-        keyboard.append(row)
-
-    await update.message.reply_text(
-        "Pilih Lokasi:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    keyboard = [[InlineKeyboardButton(l[1], callback_data=f"lokasi_{l[0]}")] for l in locations]
+    await update.message.reply_text("Pilih Lokasi:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PILIH_LOKASI
+
 async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -618,4 +596,3 @@ if __name__ == "__main__":
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
-
