@@ -584,7 +584,7 @@ if __name__ == "__main__":
         MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
         MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
     ]
-}
+},
         fallbacks=[
             MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
             MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama)
