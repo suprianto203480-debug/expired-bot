@@ -22,9 +22,9 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-PILIH_LOKASI, PILIH_PIC, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED, TAMBAH_LAGI = range(6)
+(PILIH_LOKASI, PILIH_PIC, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED, TAMBAH_LAGI, CARI_LOKASI) = range(7)
 
-# ================= DATABASE =================
+# ================= DATABASE =================	
 
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
@@ -198,8 +198,74 @@ async def cancel_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     locations = get_locations()
-    keyboard = [[InlineKeyboardButton(l[1], callback_data=f"lokasi_{l[0]}")] for l in locations]
-    await update.message.reply_text("Pilih Lokasi:", reply_markup=InlineKeyboardMarkup(keyboard))
+    if not locations:
+        await update.message.reply_text("Tidak ada lokasi tersedia.")
+        return ConversationHandler.END
+    context.user_data['locations'] = locations
+    context.user_data['page'] = 0
+    await show_locations_page(update, context, edit=False)
+    return PILIH_LOKASI
+async def lokasi_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data == "loc_next":
+        context.user_data['page'] = context.user_data.get('page', 0) + 1
+    elif data == "loc_prev":
+        context.user_data['page'] = max(0, context.user_data.get('page', 0) - 1)
+    elif data == "loc_search":
+        await query.edit_message_text(
+            "Silakan ketik nama lokasi yang ingin dicari (atau ketik /batal untuk membatalkan):"
+        )
+        return CARI_LOKASI
+
+    await show_locations_page(update, context)
+    return PILIH_LOKASI
+
+async def lokasi_back_to_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data['page'] = 0
+    await show_locations_page(update, context)
+    return PILIH_LOKASI
+
+async def cari_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyword = update.message.text.strip()
+    if keyword.lower() == "/batal":
+        await update.message.reply_text("Pencarian dibatalkan.", reply_markup=main_menu())
+        return ConversationHandler.END
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, nama_lokasi FROM locations WHERE is_active=true AND nama_lokasi ILIKE %s ORDER BY id",
+        (f"%{keyword}%",)
+    )
+    results = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    if not results:
+        await update.message.reply_text(
+            "Lokasi tidak ditemukan. Coba lagi atau ketik /batal untuk membatalkan."
+        )
+        return CARI_LOKASI
+
+    keyboard = [[InlineKeyboardButton(loc[1], callback_data=f"lokasi_{loc[0]}")] for loc in results]
+    keyboard.append([InlineKeyboardButton("🔙 Kembali ke Daftar", callback_data="loc_back_to_list")])
+    await update.message.reply_text("Hasil pencarian:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return PILIH_LOKASI
+
+    keyboard = [[InlineKeyboardButton(loc[1], callback_data=f"lokasi_{loc[0]}")] for loc in results]
+    keyboard.append([InlineKeyboardButton("🔙 Kembali ke Daftar", callback_data="loc_back_to_list")])
+    await update.message.reply_text("Hasil pencarian:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return PILIH_LOKASI
+async def lokasi_back_to_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data['page'] = 0
+    await show_locations_page(update, context)
     return PILIH_LOKASI
 
 async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -211,6 +277,7 @@ async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(u[1], callback_data=f"pic_{u[0]}")] for u in users]
     await query.edit_message_text("Pilih PIC:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PILIH_PIC
+CARI_LOKASI = 6
 
 async def pilih_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -551,8 +618,49 @@ async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     await query.edit_message_text("❌ Penghapusan dibatalkan.")
+async def show_locations_page(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = True):
+    locations = context.user_data.get('locations', [])
+    if not locations:
+        locations = get_locations()
+        context.user_data['locations'] = locations
 
-# ================= MAIN =================
+    page = context.user_data.get('page', 0)
+    per_page = 5
+    start = page * per_page
+    end = start + per_page
+    current_locations = locations[start:end]
+
+    keyboard = []
+    for loc in current_locations:
+        keyboard.append([InlineKeyboardButton(loc[1], callback_data=f"lokasi_{loc[0]}")])
+
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data="loc_prev"))
+    if end < len(locations):
+        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data="loc_next"))
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    keyboard.append([InlineKeyboardButton("🔍 Cari Lokasi", callback_data="loc_search")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    total_halaman = (len(locations) - 1) // per_page + 1
+    text = f"Pilih Lokasi (Halaman {page+1}/{total_halaman}):"
+
+    if edit and update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+    else:
+        await update.effective_message.reply_text(text, reply_markup=reply_markup)
+async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if 'lokasi' not in context.user_data or 'pic' not in context.user_data:
+        await update.message.reply_text("⚠️ Terjadi kesalahan, silakan mulai dari awal.")
+        return ConversationHandler.END
+    await update.message.reply_text(
+        f"Lokasi tetap ✔️\nPIC: {context.user_data['pic']}\n\n"
+        "Ketik SKU / Nama / UPC:"
+    )
+    return CARI_PRODUK
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
@@ -562,7 +670,11 @@ if __name__ == "__main__":
             MessageHandler(filters.Regex("^➕ Input Produk$"), start_input)
         ],
         states={
-            PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
+            PILIH_LOKASI: [
+                CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_"),
+                CallbackQueryHandler(lokasi_navigation, pattern="^(loc_next|loc_prev|loc_search)$"),
+                CallbackQueryHandler(lokasi_back_to_list, pattern="^loc_back_to_list$")
+            ],
             PILIH_PIC: [CallbackQueryHandler(pilih_pic, pattern="^pic_")],
             CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
             PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
@@ -570,7 +682,8 @@ if __name__ == "__main__":
             TAMBAH_LAGI: [
                 MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
                 MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
-            ]
+            ],
+            CARI_LOKASI: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_lokasi)]
         },
         fallbacks=[
             MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
@@ -578,21 +691,3 @@ if __name__ == "__main__":
         ],
         allow_reentry=True
     )
-
-    # ===== CALLBACK HANDLER DITARUH DI ATAS =====
-    app.add_handler(CallbackQueryHandler(hapus_konfirmasi, pattern="^hapus_"))
-    app.add_handler(CallbackQueryHandler(confirm_hapus, pattern="^confirmhapus_"))
-    app.add_handler(CallbackQueryHandler(batal_hapus, pattern="^batalhapus$"))
-
-    # ===== COMMAND & MENU =====
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(conv)
-
-    app.add_handler(MessageHandler(filters.Regex("^📄 Export Harian$"), export_harian))
-    app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"), export_bulanan))
-    app.add_handler(MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start))
-    app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"), help_menu))
-    app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama))
-
-    print("✅ BOT FINAL STABLE RUNNING")
-    app.run_polling()
