@@ -288,25 +288,62 @@ async def pilih_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         expired_obj = datetime.strptime(update.message.text, "%d%m%y").date()
-    except:
-        await update.message.reply_text("Format salah. Gunakan ddmmyy")
+    except ValueError:
+        await update.message.reply_text("❌ Format salah. Gunakan ddmmyy (contoh: 030326 untuk 3 Maret 2026)")
         return INPUT_EXPIRED
 
-    p = context.user_data["produk"]
+    produk = context.user_data["produk"]
+    lokasi_id = context.user_data["lokasi"]
+    upc = produk["upc"]
+    pic = context.user_data["pic"]
 
+    # Cek duplikasi di database
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT tanggal_input, pic 
+            FROM expired_logs 
+            WHERE lokasi = %s AND upc = %s AND expired_date = %s
+        """, (lokasi_id, upc, expired_obj))
+        existing = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if existing:
+        tgl_input, pic_lama = existing
+        # Format tanggal_input agar lebih rapi (misal: 2026-03-03 14:30)
+        tgl_str = tgl_input.strftime("%Y-%m-%d %H:%M") if tgl_input else "tidak diketahui"
+        await update.message.reply_text(
+            f"⚠️ Produk dengan UPC {upc} dan tanggal expired {expired_obj} "
+            f"sudah pernah diinput di lokasi ini pada {tgl_str} oleh {pic_lama}.\n"
+            "Tidak diperbolehkan input duplikat."
+        )
+        # Kembali ke menu tambah produk lagi
+        keyboard = [
+            [KeyboardButton("➕ Tambah Produk Lagi")],
+            [KeyboardButton("❌ Selesai")]
+        ]
+        await update.message.reply_text(
+            "Silakan pilih menu:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        )
+        return TAMBAH_LAGI
+
+    # Jika tidak ada duplikasi, simpan data
     save_expired(
-        context.user_data["lokasi"],
-        p["upc"],
-        p["nama_produk"],
+        lokasi_id,
+        upc,
+        produk["nama_produk"],
         expired_obj,
-        context.user_data["pic"]
+        pic
     )
 
     keyboard = [
         [KeyboardButton("➕ Tambah Produk Lagi")],
         [KeyboardButton("❌ Selesai")]
     ]
-
     await update.message.reply_text(
         "✅ Data berhasil disimpan.\nTambah produk lagi?",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
