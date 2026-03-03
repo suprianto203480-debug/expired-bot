@@ -1,6 +1,8 @@
 import os
+import logging
 import psycopg2
 import csv
+import pytz
 from datetime import datetime, date
 from telegram import (
     Update,
@@ -19,6 +21,13 @@ from telegram.ext import (
     filters
 )
 
+# ================= LOGGING =================
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -35,125 +44,137 @@ def get_connection():
 def get_user_by_telegram_id(telegram_id):
     conn = get_connection()
     cur = conn.cursor()
-
-    cur.execute("""
-        SELECT username, nama, role, is_active
-        FROM users
-        WHERE telegram_id = %s
-    """, (telegram_id,))
-
-    user = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
-    return user
+    try:
+        cur.execute("""
+            SELECT username, nama, role, is_active
+            FROM users
+            WHERE telegram_id = %s
+        """, (telegram_id,))
+        return cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
 
 def user_exists(telegram_id):
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT nama FROM users WHERE telegram_id=%s AND is_active=true", (telegram_id,))
-    result = cur.fetchone()
-    cur.close()
-    conn.close()
-    return result
+    try:
+        cur.execute("SELECT nama FROM users WHERE telegram_id=%s AND is_active=true", (telegram_id,))
+        return cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
 
 def get_locations():
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id,nama_lokasi FROM locations WHERE is_active=true ORDER BY id")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    try:
+        cur.execute("SELECT id,nama_lokasi FROM locations WHERE is_active=true ORDER BY id")
+        return cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
 
 def search_product(keyword):
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT upc, sku, deskripsi
-        FROM products
-        WHERE upc ILIKE %s OR sku::text ILIKE %s OR deskripsi ILIKE %s
-        LIMIT 10
-    """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [{"upc": r[0], "sku": r[1], "nama_produk": r[2]} for r in rows]
+    try:
+        cur.execute("""
+            SELECT upc, sku, deskripsi
+            FROM products
+            WHERE upc ILIKE %s OR sku::text ILIKE %s OR deskripsi ILIKE %s
+            LIMIT 10
+        """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"))
+        rows = cur.fetchall()
+        return [{"upc": r[0], "sku": r[1], "nama_produk": r[2]} for r in rows]
+    finally:
+        cur.close()
+        conn.close()
 
 def save_expired(lokasi_id, upc, nama_produk, expired_date, pic):
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO expired_logs
-        (tanggal_input,lokasi,upc,nama_produk,expired_date,pic)
-        VALUES ((NOW() AT TIME ZONE 'Asia/Jakarta'),%s,%s,%s,%s,%s)
-    """,(lokasi_id,upc,nama_produk,expired_date,pic))
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        cur.execute("""
+            INSERT INTO expired_logs
+            (tanggal_input,lokasi,upc,nama_produk,expired_date,pic)
+            VALUES ((NOW() AT TIME ZONE 'Asia/Jakarta'),%s,%s,%s,%s,%s)
+        """, (lokasi_id, upc, nama_produk, expired_date, pic))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
 def get_today_expired():
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT l.nama_lokasi,
-               p.sku,
-               e.nama_produk,
-               e.upc,
-               e.expired_date,
-               e.pic,
-               e.tanggal_input
-        FROM expired_logs e
-        LEFT JOIN locations l ON l.id::text = e.lokasi::text
-        LEFT JOIN products p ON p.upc::text = e.upc::text
-        WHERE (e.tanggal_input AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jakarta')::date
-              = (NOW() AT TIME ZONE 'Asia/Jakarta')::date
-        ORDER BY l.nama_lokasi, p.sku
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    try:
+        cur.execute("""
+            SELECT l.nama_lokasi,
+                   p.sku,
+                   e.nama_produk,
+                   e.upc,
+                   e.expired_date,
+                   e.pic,
+                   e.tanggal_input
+            FROM expired_logs e
+            LEFT JOIN locations l ON l.id::text = e.lokasi::text
+            LEFT JOIN products p ON p.upc::text = e.upc::text
+            WHERE (e.tanggal_input AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jakarta')::date
+                  = (NOW() AT TIME ZONE 'Asia/Jakarta')::date
+            ORDER BY l.nama_lokasi, p.sku
+        """)
+        return cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
 
-def get_monthly_report(year,month):
+def get_monthly_report(year, month):
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT l.nama_lokasi,p.sku,e.nama_produk,
-               e.upc,e.expired_date,e.pic,e.tanggal_input
-        FROM expired_logs e
-        LEFT JOIN locations l ON l.id::text=e.lokasi::text
-        LEFT JOIN products p ON p.upc::text=e.upc::text
-        WHERE EXTRACT(YEAR FROM e.tanggal_input)=%s
-        AND EXTRACT(MONTH FROM e.tanggal_input)=%s
-        ORDER BY e.tanggal_input
-    """,(year,month))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    try:
+        cur.execute("""
+            SELECT 
+                l.nama_lokasi,
+                p.sku,
+                e.nama_produk,
+                e.upc,
+                e.expired_date,
+                e.pic,
+                e.tanggal_input
+            FROM expired_logs e
+            LEFT JOIN locations l ON l.id::text = e.lokasi::text
+            LEFT JOIN products p ON p.upc::text = e.upc::text
+            WHERE EXTRACT(YEAR FROM e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
+              AND EXTRACT(MONTH FROM e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
+            ORDER BY e.tanggal_input
+        """, (year, month))
+        return cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
 
 def get_recent_logs():
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT 
-            e.id,
-            l.nama_lokasi,
-            p.sku,
-            e.upc,
-            e.expired_date
-        FROM expired_logs e
-        LEFT JOIN products p ON p.upc::text = e.upc::text
-        LEFT JOIN locations l ON l.id::text = e.lokasi::text
-        ORDER BY e.tanggal_input DESC
-        LIMIT 10
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    try:
+        cur.execute("""
+            SELECT 
+                e.id,
+                l.nama_lokasi,
+                p.sku,
+                e.upc,
+                e.expired_date
+            FROM expired_logs e
+            LEFT JOIN products p ON p.upc::text = e.upc::text
+            LEFT JOIN locations l ON l.id::text = e.lokasi::text
+            ORDER BY e.tanggal_input DESC
+            LIMIT 10
+        """)
+        return cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
 
 # ================= MENU =================
 
@@ -213,6 +234,7 @@ async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(l[1], callback_data=f"lokasi_{l[0]}")] for l in locations]
     await update.message.reply_text("Pilih Lokasi:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PILIH_LOKASI
+
 async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -220,7 +242,6 @@ async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lokasi_id = query.data.split("_")[1]
     context.user_data["lokasi"] = lokasi_id
 
-    # Ambil user berdasarkan telegram_id
     telegram_id = update.effective_user.id
     user = get_user_by_telegram_id(telegram_id)
 
@@ -234,7 +255,6 @@ async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Akun Anda tidak aktif.")
         return ConversationHandler.END
 
-    # Simpan PIC otomatis
     context.user_data["pic"] = nama
     context.user_data["role"] = role
 
@@ -243,7 +263,6 @@ async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👤 PIC: {nama}\n\n"
         "Ketik SKU / Nama / UPC:"
     )
-
     return CARI_PRODUK
 
 async def cari_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -252,17 +271,17 @@ async def cari_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Produk tidak ditemukan.")
         return CARI_PRODUK
 
-    keyboard = [[InlineKeyboardButton(p["nama_produk"],callback_data=f"produk_{p['upc']}")] for p in results]
+    keyboard = [[InlineKeyboardButton(p["nama_produk"], callback_data=f"produk_{p['upc']}")] for p in results]
     context.user_data["last"] = results
-    await update.message.reply_text("Pilih Produk:",reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("Pilih Produk:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PILIH_PRODUK
 
 async def pilih_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     upc = query.data.split("_")[1]
-    selected = next(p for p in context.user_data["last"] if p["upc"]==upc)
-    context.user_data["produk"]=selected
+    selected = next(p for p in context.user_data["last"] if p["upc"] == upc)
+    context.user_data["produk"] = selected
     await query.edit_message_text("Masukkan tanggal expired (ddmmyy):")
     return INPUT_EXPIRED
 
@@ -292,7 +311,6 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ Data berhasil disimpan.\nTambah produk lagi?",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     )
-
     return TAMBAH_LAGI
 
 async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -302,10 +320,7 @@ async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return CARI_PRODUK
 
-# ================= TAMBAHKAN IMPORT INI DI BAGIAN ATAS =================
-import pytz
-
-# ================= EXPORT HARIAN (sudah benar, hanya ditambahkan try-except) =================
+# ================= EXPORT HARIAN =================
 async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         tz = pytz.timezone("Asia/Jakarta")
@@ -378,15 +393,15 @@ async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(filename)
 
     except Exception as e:
+        logger.error(f"Error di export_harian: {e}")
         await update.effective_message.reply_text(f"❌ Gagal export harian: {e}")
 
-# ================= EXPORT BULANAN (diperbaiki dengan timezone & error handling) =================
+# ================= EXPORT BULANAN =================
 async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         tz = pytz.timezone("Asia/Jakarta")
         now = datetime.now(tz)
 
-        # Ambil data menggunakan fungsi yang sudah diperbaiki (dengan timezone)
         data = get_monthly_report(now.year, now.month)
 
         if not data:
@@ -440,245 +455,233 @@ async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(filename)
 
     except Exception as e:
+        logger.error(f"Error di export_bulanan: {e}")
         await update.effective_message.reply_text(f"❌ Gagal rekap bulanan: {e}")
 
-# ================= FUNGSI GET_MONTHLY_REPORT (diperbaiki dengan timezone) =================
-def get_monthly_report(year, month):
-    conn = get_connection()
-    cur = conn.cursor()
+# ================= HAPUS ITEM =================
+
+async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Fungsi hapus_item_start dipanggil dengan pesan: '{update.message.text}' oleh user {update.effective_user.id}")
+
+    # Cek admin
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Hanya admin yang bisa menghapus item.")
+        return
+
     try:
-        cur.execute("""
-            SELECT 
-                l.nama_lokasi,
-                p.sku,
-                e.nama_produk,
-                e.upc,
-                e.expired_date,
-                e.pic,
-                e.tanggal_input
-            FROM expired_logs e
-            LEFT JOIN locations l ON l.id::text = e.lokasi::text
-            LEFT JOIN products p ON p.upc::text = e.upc::text
-            WHERE EXTRACT(YEAR FROM e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
-              AND EXTRACT(MONTH FROM e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
-            ORDER BY e.tanggal_input
-        """, (year, month))
-        return cur.fetchall()
-    finally:
-        cur.close()
-        conn.close()
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            # Ambil produk yang sudah expired (bisa juga semua, sesuai kebutuhan)
+            cur.execute("""
+                SELECT id, sku, expired_date
+                FROM expired_logs
+                WHERE expired_date <= CURRENT_DATE
+                ORDER BY expired_date ASC
+            """)
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+            conn.close()
 
+        if not rows:
+            await update.message.reply_text("✅ Tidak ada produk expired.")
+            return
 
-# ================= HAPUS =================
+        keyboard = []
+        for row in rows:
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{row[1]} - {row[2]}",
+                    callback_data=f"hapus_{row[0]}"
+                )
+            ])
 
-async def hapus_item_start(update, context):
-    if not is_admin(update):
-        await update.message.reply_text("❌ Hanya admin yang bisa hapus.")
-        return
-
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT id, sku, expired_date
-        FROM expired_logs
-        WHERE expired_date <= CURRENT_DATE
-        ORDER BY expired_date ASC
-    """)
-
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    if not rows:
-        await update.message.reply_text("✅ Tidak ada produk expired.")
-        return
-
-    keyboard = []
-
-    for row in rows:
-        keyboard.append([
-            InlineKeyboardButton(
-                f"{row[1]} - {row[2]}",
-                callback_data=f"hapus_{row[0]}"
-            )
-        ])
-
-    await update.message.reply_text(
-        "🗑 Pilih produk expired yang ingin dihapus:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
+        await update.message.reply_text(
+            "🗑 Pilih produk expired yang ingin dihapus:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        logger.error(f"Error di hapus_item_start: {e}")
+        await update.message.reply_text("❌ Terjadi kesalahan. Silakan coba lagi nanti.")
 
 async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     if update.effective_user.id not in ADMIN_IDS:
+        await query.edit_message_text("❌ Anda tidak berhak melakukan ini.")
         return
 
     item_id = query.data.split("_")[1]
 
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT sku, expired_date FROM expired_logs WHERE id=%s", (item_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT sku, expired_date FROM expired_logs WHERE id=%s", (item_id,))
+            row = cur.fetchone()
+        finally:
+            cur.close()
+            conn.close()
 
-    if not row:
-        await query.edit_message_text("Data tidak ditemukan.")
-        return
+        if not row:
+            await query.edit_message_text("Data tidak ditemukan.")
+            return
 
-    keyboard = [[
-        InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"confirmhapus_{item_id}"),
-        InlineKeyboardButton("❌ Batal", callback_data="batalhapus")
-    ]]
+        keyboard = [[
+            InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"confirmhapus_{item_id}"),
+            InlineKeyboardButton("❌ Batal", callback_data="batalhapus")
+        ]]
 
-    await query.edit_message_text(
-        f"""📦 DETAIL PRODUK
+        await query.edit_message_text(
+            f"""📦 DETAIL PRODUK
 
 SKU      : {row[0]}
 Expired  : {row[1]}
 
 Yakin ingin menghapus data ini?""",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        logger.error(f"Error di hapus_konfirmasi: {e}")
+        await query.edit_message_text("❌ Terjadi kesalahan.")
 
 async def confirm_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     if update.effective_user.id not in ADMIN_IDS:
+        await query.edit_message_text("❌ Anda tidak berhak melakukan ini.")
         return
 
     item_id = query.data.split("_")[1]
 
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM expired_logs WHERE id=%s", (item_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("DELETE FROM expired_logs WHERE id=%s", (item_id,))
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
 
-    await query.edit_message_text("✅ Item berhasil dihapus.")
-
+        await query.edit_message_text("✅ Item berhasil dihapus.")
+    except Exception as e:
+        logger.error(f"Error di confirm_hapus: {e}")
+        await query.edit_message_text("❌ Gagal menghapus item.")
 
 async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("❌ Penghapusan dibatalkan.")
 
+# ================= NOTIFIKASI EXPIRED =================
 async def notifikasi_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    conn = get_connection()
-    cur = conn.cursor()
-
     try:
-        cur.execute("""
-            SELECT 
-                l.nama_lokasi,
-                p.sku,
-                e.nama_produk,
-                e.upc,
-                e.expired_date,
-                e.pic
-            FROM expired_logs e
-            LEFT JOIN locations l ON l.id::text = e.lokasi::text
-            LEFT JOIN products p ON p.upc::text = e.upc::text
-            WHERE e.expired_date <= CURRENT_DATE + INTERVAL '1 day'
-            ORDER BY e.expired_date ASC
-        """)
-        data = cur.fetchall()
-    finally:
-        cur.close()
-        conn.close()
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT 
+                    l.nama_lokasi,
+                    p.sku,
+                    e.nama_produk,
+                    e.upc,
+                    e.expired_date,
+                    e.pic
+                FROM expired_logs e
+                LEFT JOIN locations l ON l.id::text = e.lokasi::text
+                LEFT JOIN products p ON p.upc::text = e.upc::text
+                WHERE e.expired_date <= CURRENT_DATE + INTERVAL '1 day'
+                ORDER BY e.expired_date ASC
+            """)
+            data = cur.fetchall()
+        finally:
+            cur.close()
+            conn.close()
 
-    if not data:
-        await update.message.reply_text("✅ Tidak ada produk expired / H-1.")
-        return
+        if not data:
+            await update.message.reply_text("✅ Tidak ada produk expired / H-1.")
+            return
 
-    today = date.today()
-    pesan = "🚨 *NOTIFIKASI PRODUK EXPIRED*\n\n"
+        today = date.today()
+        pesan = "🚨 *NOTIFIKASI PRODUK EXPIRED*\n\n"
 
-    for row in data:
-        lokasi, sku, produk, upc, expired, pic = row
-        selisih = (expired - today).days
+        for row in data:
+            lokasi, sku, produk, upc, expired, pic = row
+            selisih = (expired - today).days
 
-        if selisih < 0:
-            status = "🔴 SUDAH EXPIRED"
-        elif selisih == 0:
-            status = "🟠 EXPIRED HARI INI"
-        elif selisih == 1:
-            status = "🟡 H-1"
-        else:
-            continue
+            if selisih < 0:
+                status = "🔴 SUDAH EXPIRED"
+            elif selisih == 0:
+                status = "🟠 EXPIRED HARI INI"
+            elif selisih == 1:
+                status = "🟡 H-1"
+            else:
+                continue
 
-        pesan += (
-    f"📍 {lokasi or '-'}\n"
-    f"SKU: {sku or '-'}\n"
-    f"UPC: {upc or '-'}\n"
-    f"Produk: {produk or '-'}\n"
-    f"Expired: {expired} ({status})\n"
-    f"PIC: {pic or '-'}\n"
-    f"----------------------\n"
-)
+            pesan += (
+                f"📍 {lokasi or '-'}\n"
+                f"SKU: {sku or '-'}\n"
+                f"UPC: {upc or '-'}\n"
+                f"Produk: {produk or '-'}\n"
+                f"Expired: {expired} ({status})\n"
+                f"PIC: {pic or '-'}\n"
+                f"----------------------\n"
+            )
 
-    await update.message.reply_text(pesan)
-
-def is_admin(update):
-    return update.effective_user.id in ADMIN_IDS
+        await update.message.reply_text(pesan)
+    except Exception as e:
+        logger.error(f"Error di notifikasi_expired: {e}")
+        await update.message.reply_text("❌ Gagal mengambil notifikasi.")
 
 # ================= MAIN =================
-
 if __name__ == "__main__":
-
     app = ApplicationBuilder().token(TOKEN).build()
 
-    conv = ConversationHandler(
+    # Conversation Handler untuk Input Produk
+    conv_handler = ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^➕ Input Produk$"), start_input)
+            MessageHandler(filters.Text("➕ Input Produk"), start_input)
         ],
         states={
-            PILIH_LOKASI: [
-                CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")
-            ],
-            CARI_PRODUK: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)
-            ],
-            PILIH_PRODUK: [
-                CallbackQueryHandler(pilih_produk, pattern="^produk_")
-            ],
-            INPUT_EXPIRED: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)
-            ],
+            PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
+            CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
+            PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
+            INPUT_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)],
             TAMBAH_LAGI: [
-                MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
-                MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
+                MessageHandler(filters.Text("➕ Tambah Produk Lagi"), tambah_produk_lagi),
+                MessageHandler(filters.Text("❌ Selesai"), cancel_process)
             ],
         },
         fallbacks=[
-            MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
-            MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama),
-            MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start),
+            MessageHandler(filters.Text("❌ Selesai"), cancel_process),
+            MessageHandler(filters.Text("🏠 Menu Utama"), menu_utama),
+            MessageHandler(filters.Text("🗑 Hapus Item"), hapus_item_start),
         ],
         allow_reentry=True,
     )
 
+    # Handler perintah start
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(conv)
 
-    app.add_handler(MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start))
-    app.add_handler(MessageHandler(filters.Regex("^📄 Export Harian$"), export_harian))
-    app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"), export_bulanan))
-    app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"), help_menu))
-    app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama))
-    app.add_handler(MessageHandler(filters.Regex("^🚨 Notifikasi Expired$"), notifikasi_expired))
+    # Conversation handler
+    app.add_handler(conv_handler)
 
+    # Handler untuk tombol utama (di luar percakapan)
+    app.add_handler(MessageHandler(filters.Text("🗑 Hapus Item"), hapus_item_start))
+    app.add_handler(MessageHandler(filters.Text("📄 Export Harian"), export_harian))
+    app.add_handler(MessageHandler(filters.Text("📊 Rekap Bulanan CSV"), export_bulanan))
+    app.add_handler(MessageHandler(filters.Text("ℹ️ Help"), help_menu))
+    app.add_handler(MessageHandler(filters.Text("🏠 Menu Utama"), menu_utama))
+    app.add_handler(MessageHandler(filters.Text("🚨 Notifikasi Expired"), notifikasi_expired))
+
+    # Handler untuk callback query dari proses hapus
     app.add_handler(CallbackQueryHandler(hapus_konfirmasi, pattern="^hapus_"))
     app.add_handler(CallbackQueryHandler(confirm_hapus, pattern="^confirmhapus_"))
     app.add_handler(CallbackQueryHandler(batal_hapus, pattern="^batalhapus$"))
 
-    print("✅ BOT FINAL STABLE RUNNING")
+    logger.info("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
