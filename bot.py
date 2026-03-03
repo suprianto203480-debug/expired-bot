@@ -459,7 +459,7 @@ async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text(f"❌ Gagal rekap bulanan: {e}")
 
 async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"Fungsi hapus_item_start dipanggil dengan pesan: '{update.message.text}' oleh user {update.effective_user.id}")
+    logger.info(f"Hapus item dimulai oleh user {update.effective_user.id}")
 
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ Hanya admin yang bisa menghapus item.")
@@ -469,9 +469,12 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = get_connection()
         cur = conn.cursor()
         try:
-            # PERBAIKAN: JOIN dengan products untuk mengambil sku
+            # JOIN dengan products, gunakan COALESCE agar jika SKU null, tampilkan nama_produk
             cur.execute("""
-                SELECT e.id, p.sku, e.expired_date
+                SELECT 
+                    e.id, 
+                    COALESCE(p.sku, e.nama_produk, 'SKU/Nama tidak diketahui') AS identifier,
+                    e.expired_date
                 FROM expired_logs e
                 LEFT JOIN products p ON p.upc::text = e.upc::text
                 WHERE e.expired_date <= CURRENT_DATE
@@ -488,11 +491,10 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = []
         for row in rows:
-            # row = (id, sku, expired_date)
-            sku = row[1] if row[1] else "SKU tidak ditemukan"
+            # row = (id, identifier, expired_date)
             keyboard.append([
                 InlineKeyboardButton(
-                    f"{sku} - {row[2]}",
+                    f"{row[1]} - {row[2]}",
                     callback_data=f"hapus_{row[0]}"
                 )
             ])
@@ -502,7 +504,7 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception as e:
-        logger.error(f"Error di hapus_item_start: {e}")
+        logger.error(f"Error di hapus_item_start: {e}", exc_info=True)
         await update.message.reply_text("❌ Terjadi kesalahan. Silakan coba lagi nanti.")
 
 async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -513,15 +515,22 @@ async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Anda tidak berhak melakukan ini.")
         return
 
-    item_id = query.data.split("_")[1]
-
     try:
+        # Ambil dan validasi item_id
+        data_parts = query.data.split('_')
+        if len(data_parts) < 2 or not data_parts[1].isdigit():
+            await query.edit_message_text("❌ ID produk tidak valid.")
+            return
+        item_id = data_parts[1]
+
         conn = get_connection()
         cur = conn.cursor()
         try:
-            # PERBAIKAN: JOIN untuk mengambil sku
+            # Ambil detail produk (SKU atau nama_produk, dan expired_date)
             cur.execute("""
-                SELECT p.sku, e.expired_date
+                SELECT 
+                    COALESCE(p.sku, e.nama_produk, 'SKU/Nama tidak diketahui') AS identifier,
+                    e.expired_date
                 FROM expired_logs e
                 LEFT JOIN products p ON p.upc::text = e.upc::text
                 WHERE e.id = %s
@@ -532,11 +541,10 @@ async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.close()
 
         if not row:
-            await query.edit_message_text("Data tidak ditemukan.")
+            await query.edit_message_text("❌ Data tidak ditemukan.")
             return
 
-        sku = row[0] if row[0] else "SKU tidak diketahui"
-        expired = row[1]
+        identifier, expired = row
 
         keyboard = [[
             InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"confirmhapus_{item_id}"),
@@ -544,59 +552,16 @@ async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]]
 
         await query.edit_message_text(
-            f"""📦 DETAIL PRODUK
-
-SKU      : {sku}
-Expired  : {expired}
-
-Yakin ingin menghapus data ini?""",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            f"📦 **DETAIL PRODUK**\n\n"
+            f"SKU/Nama : {identifier}\n"
+            f"Expired  : {expired}\n\n"
+            f"Yakin ingin menghapus data ini?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
         )
     except Exception as e:
-        logger.error(f"Error di hapus_konfirmasi: {e}")
-        await query.edit_message_text("❌ Terjadi kesalahan.")
-
-async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if update.effective_user.id not in ADMIN_IDS:
-        await query.edit_message_text("❌ Anda tidak berhak melakukan ini.")
-        return
-
-    item_id = query.data.split("_")[1]
-
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        try:
-            cur.execute("SELECT sku, expired_date FROM expired_logs WHERE id=%s", (item_id,))
-            row = cur.fetchone()
-        finally:
-            cur.close()
-            conn.close()
-
-        if not row:
-            await query.edit_message_text("Data tidak ditemukan.")
-            return
-
-        keyboard = [[
-            InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"confirmhapus_{item_id}"),
-            InlineKeyboardButton("❌ Batal", callback_data="batalhapus")
-        ]]
-
-        await query.edit_message_text(
-            f"""📦 DETAIL PRODUK
-
-SKU      : {row[0]}
-Expired  : {row[1]}
-
-Yakin ingin menghapus data ini?""",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    except Exception as e:
-        logger.error(f"Error di hapus_konfirmasi: {e}")
-        await query.edit_message_text("❌ Terjadi kesalahan.")
+        logger.error(f"Error di hapus_konfirmasi: {e}", exc_info=True)
+        await query.edit_message_text("❌ Terjadi kesalahan. Silakan coba lagi nanti.")
 
 async def confirm_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -606,13 +571,17 @@ async def confirm_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Anda tidak berhak melakukan ini.")
         return
 
-    item_id = query.data.split("_")[1]
-
     try:
+        data_parts = query.data.split('_')
+        if len(data_parts) < 2 or not data_parts[1].isdigit():
+            await query.edit_message_text("❌ ID produk tidak valid.")
+            return
+        item_id = data_parts[1]
+
         conn = get_connection()
         cur = conn.cursor()
         try:
-            cur.execute("DELETE FROM expired_logs WHERE id=%s", (item_id,))
+            cur.execute("DELETE FROM expired_logs WHERE id = %s", (item_id,))
             conn.commit()
         finally:
             cur.close()
@@ -620,7 +589,7 @@ async def confirm_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await query.edit_message_text("✅ Item berhasil dihapus.")
     except Exception as e:
-        logger.error(f"Error di confirm_hapus: {e}")
+        logger.error(f"Error di confirm_hapus: {e}", exc_info=True)
         await query.edit_message_text("❌ Gagal menghapus item.")
 
 async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
