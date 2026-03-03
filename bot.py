@@ -634,6 +634,16 @@ async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.edit_message_text("❌ Penghapusan dibatalkan.")
 
+async def invalid_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "❌ Input tidak valid. Masukkan tanggal dalam format **ddmmyy** (contoh: 030326 untuk 3 Maret 2026) atau gunakan menu di bawah.",
+        reply_markup=ReplyKeyboardMarkup([["❌ Selesai", "🏠 Menu Utama"]], resize_keyboard=True)
+
+async def hapus_item_dari_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Akhiri percakapan
+    await hapus_item_start(update, context)
+    return ConversationHandler.END
+
 # ================= NOTIFIKASI EXPIRED =================
 async def notifikasi_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -699,27 +709,30 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
     # Conversation Handler untuk Input Produk
-    conv_handler = ConversationHandler(
-        entry_points=[
-            MessageHandler(filters.Text("➕ Input Produk"), start_input)
+   conv_handler = ConversationHandler(
+    entry_points=[
+        MessageHandler(filters.Text("➕ Input Produk"), start_input)
+    ],
+    states={
+        PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
+        CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
+        PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
+        INPUT_EXPIRED: [
+            MessageHandler(filters.Regex(r'^\d{6}$'), input_expired)  # Hanya terima 6 digit angka
         ],
-        states={
-            PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
-            CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
-            PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
-            INPUT_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)],
-            TAMBAH_LAGI: [
-                MessageHandler(filters.Text("➕ Tambah Produk Lagi"), tambah_produk_lagi),
-                MessageHandler(filters.Text("❌ Selesai"), cancel_process)
-            ],
-        },
+        TAMBAH_LAGI: [
+            MessageHandler(filters.Text("➕ Tambah Produk Lagi"), tambah_produk_lagi),
+            MessageHandler(filters.Text("❌ Selesai"), cancel_process)
+        ],
+    },
         fallbacks=[
-            MessageHandler(filters.Text("❌ Selesai"), cancel_process),
-            MessageHandler(filters.Text("🏠 Menu Utama"), menu_utama),
-            MessageHandler(filters.Text("🗑 Hapus Item"), hapus_item_start),
-        ],
-        allow_reentry=True,
-    )
+        MessageHandler(filters.Text("❌ Selesai"), cancel_process),
+        MessageHandler(filters.Text("🏠 Menu Utama"), menu_utama),
+        MessageHandler(filters.Text("🗑 Hapus Item"), hapus_item_start),
+        MessageHandler(filters.TEXT & ~filters.COMMAND, invalid_input)  # Tangani input lain yang tidak valid
+    ],
+    allow_reentry=True,
+)
 
     # Handler perintah start
     app.add_handler(CommandHandler("start", start))
