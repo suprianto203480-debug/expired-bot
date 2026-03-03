@@ -1,7 +1,6 @@
 import os
 import psycopg2
 import csv
-import pytz
 from datetime import datetime, date
 from telegram import (
     Update,
@@ -23,8 +22,7 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-(PILIH_LOKASI, PILIH_PIC, CARI_PRODUK, PILIH_PRODUK,
- INPUT_EXPIRED, TAMBAH_LAGI, CARI_LOKASI) = range(7)
+PILIH_LOKASI, PILIH_PIC, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED, TAMBAH_LAGI = range(6)
 
 # ================= DATABASE =================
 
@@ -84,7 +82,30 @@ def save_expired(lokasi_id, upc, nama_produk, expired_date, pic):
     cur.close()
     conn.close()
 
-def get_monthly_report(year, month):
+def get_today_expired():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT l.nama_lokasi,
+               p.sku,
+               e.nama_produk,
+               e.upc,
+               e.expired_date,
+               e.pic,
+               e.tanggal_input
+        FROM expired_logs e
+        LEFT JOIN locations l ON l.id::text = e.lokasi::text
+        LEFT JOIN products p ON p.upc::text = e.upc::text
+        WHERE (e.tanggal_input AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jakarta')::date
+              = (NOW() AT TIME ZONE 'Asia/Jakarta')::date
+        ORDER BY l.nama_lokasi, p.sku
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+def get_monthly_report(year,month):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -93,8 +114,8 @@ def get_monthly_report(year, month):
         FROM expired_logs e
         LEFT JOIN locations l ON l.id::text=e.lokasi::text
         LEFT JOIN products p ON p.upc::text=e.upc::text
-        WHERE EXTRACT(YEAR FROM e.tanggal_input AT TIME ZONE 'Asia/Jakarta')=%s
-        AND EXTRACT(MONTH FROM e.tanggal_input AT TIME ZONE 'Asia/Jakarta')=%s
+        WHERE EXTRACT(YEAR FROM e.tanggal_input)=%s
+        AND EXTRACT(MONTH FROM e.tanggal_input)=%s
         ORDER BY e.tanggal_input
     """,(year,month))
     rows = cur.fetchall()
@@ -106,10 +127,15 @@ def get_recent_logs():
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT e.id,l.nama_lokasi,p.sku,e.upc,e.expired_date
+        SELECT 
+            e.id,
+            l.nama_lokasi,
+            p.sku,
+            e.upc,
+            e.expired_date
         FROM expired_logs e
-        LEFT JOIN products p ON p.upc::text=e.upc::text
-        LEFT JOIN locations l ON l.id::text=e.lokasi::text
+        LEFT JOIN products p ON p.upc::text = e.upc::text
+        LEFT JOIN locations l ON l.id::text = e.lokasi::text
         ORDER BY e.tanggal_input DESC
         LIMIT 10
     """)
@@ -129,7 +155,7 @@ def main_menu():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# ================= HANDLER UMUM =================
+# ================= HANDLERS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -144,29 +170,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def menu_utama(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("🏠 Menu Utama.", reply_markup=main_menu())
+    await update.message.reply_text(
+        "🏠 Kembali ke Menu Utama.",
+        reply_markup=main_menu()
+    )
     return ConversationHandler.END
 
 async def help_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📌 MENU:\n➕ Input Produk\n📄 Export Harian\n📊 Rekap Bulanan CSV\n🗑 Hapus Item",
+        "📌 MENU:\n"
+        "➕ Input Produk\n"
+        "📄 Export Harian\n"
+        "📊 Rekap Bulanan CSV\n"
+        "🗑 Hapus Item",
         reply_markup=main_menu()
     )
 
 async def cancel_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("✅ Selesai.", reply_markup=main_menu())
+    await update.message.reply_text(
+        "✅ Selesai.",
+        reply_markup=main_menu()
+    )
     return ConversationHandler.END
 
 # ================= INPUT FLOW =================
 
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     locations = get_locations()
-    if not locations:
-        await update.message.reply_text("Tidak ada lokasi tersedia.")
-        return ConversationHandler.END
-
-    keyboard = [[InlineKeyboardButton(loc[1], callback_data=f"lokasi_{loc[0]}")] for loc in locations]
+    keyboard = [[InlineKeyboardButton(l[1], callback_data=f"lokasi_{l[0]}")] for l in locations]
     await update.message.reply_text("Pilih Lokasi:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PILIH_LOKASI
 
@@ -202,11 +234,9 @@ async def cari_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Produk tidak ditemukan.")
         return CARI_PRODUK
 
-    keyboard = [[InlineKeyboardButton(p["nama_produk"],
-                callback_data=f"produk_{p['upc']}")] for p in results]
+    keyboard = [[InlineKeyboardButton(p["nama_produk"],callback_data=f"produk_{p['upc']}")] for p in results]
     context.user_data["last"] = results
-    await update.message.reply_text("Pilih Produk:",
-                                    reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("Pilih Produk:",reply_markup=InlineKeyboardMarkup(keyboard))
     return PILIH_PRODUK
 
 async def pilih_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -226,11 +256,14 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return INPUT_EXPIRED
 
     p = context.user_data["produk"]
-    save_expired(context.user_data["lokasi"],
-                 p["upc"],
-                 p["nama_produk"],
-                 expired_obj,
-                 context.user_data["pic"])
+
+    save_expired(
+        context.user_data["lokasi"],
+        p["upc"],
+        p["nama_produk"],
+        expired_obj,
+        context.user_data["pic"]
+    )
 
     keyboard = [
         [KeyboardButton("➕ Tambah Produk Lagi")],
@@ -246,107 +279,320 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        f"Lokasi tetap ✔️\nPIC: {context.user_data['pic']}\n\nKetik SKU / Nama / UPC:"
+        f"Lokasi tetap ✔️\nPIC: {context.user_data['pic']}\n\n"
+        "Ketik SKU / Nama / UPC:"
     )
     return CARI_PRODUK
 
-# ================= EXPORT =================
+# ================= TAMBAHKAN IMPORT INI DI BAGIAN ATAS =================
+import pytz
 
+# ================= EXPORT HARIAN (sudah benar, hanya ditambahkan try-except) =================
 async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tz = pytz.timezone("Asia/Jakarta")
-    today = datetime.now(tz).date()
+    try:
+        tz = pytz.timezone("Asia/Jakarta")
+        today = datetime.now(tz).date()
+
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT 
+                    l.nama_lokasi,
+                    p.sku,
+                    e.nama_produk,
+                    e.upc,
+                    e.expired_date,
+                    e.pic,
+                    e.tanggal_input
+                FROM expired_logs e
+                LEFT JOIN locations l ON l.id::text = e.lokasi::text
+                LEFT JOIN products p ON p.upc::text = e.upc::text
+                WHERE DATE(e.tanggal_input) = %s
+                ORDER BY e.expired_date ASC
+            """, (today,))
+            data = cur.fetchall()
+        finally:
+            cur.close()
+            conn.close()
+
+        if not data:
+            await update.effective_message.reply_text("Tidak ada data input hari ini.")
+            return
+
+        filename = f"expired_{today}.txt"
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write("========================================================\n")
+            f.write("       LAPORAN DAILY CEK PRODUK MENDEKATI EXPIRED\n")
+            f.write("STORE        : HPM JEMBER\n")
+            f.write("DEPT         : DAIRY & FROZEN\n")
+            f.write(f"TANGGAL UPDATE : {today}\n")
+            f.write("========================================================\n\n")
+
+            for row in data:
+                lokasi, sku, produk, upc, expired, pic, input_date = row
+                if isinstance(expired, datetime):
+                    expired = expired.date()
+                selisih = (expired - today).days
+                if selisih < 0:
+                    status = "🔴 SUDAH EXPIRED"
+                elif selisih == 0:
+                    status = "🟠 EXPIRED HARI INI"
+                elif selisih == 1:
+                    status = "🟡 H-1"
+                elif 2 <= selisih <= 7:
+                    status = f"🔵 H-{selisih}"
+                else:
+                    status = "🟢 AMAN"
+
+                f.write(f"Lokasi     : {lokasi or '-'}\n")
+                f.write(f"SKU        : {sku or '-'}\n")
+                f.write(f"Produk     : {produk or '-'}\n")
+                f.write(f"UPC        : {upc or '-'}\n")
+                f.write(f"Expired    : {expired} | {status}\n")
+                f.write(f"PIC        : {pic or '-'}\n")
+                if input_date:
+                    f.write(f"Input Date : {input_date.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("--------------------------------------------------------\n")
+
+        with open(filename, "rb") as f:
+            await update.effective_message.reply_document(document=f)
+        os.remove(filename)
+
+    except Exception as e:
+        await update.effective_message.reply_text(f"❌ Gagal export harian: {e}")
+
+# ================= EXPORT BULANAN (diperbaiki dengan timezone & error handling) =================
+async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        tz = pytz.timezone("Asia/Jakarta")
+        now = datetime.now(tz)
+
+        # Ambil data menggunakan fungsi yang sudah diperbaiki (dengan timezone)
+        data = get_monthly_report(now.year, now.month)
+
+        if not data:
+            await update.effective_message.reply_text("Tidak ada data bulan ini.")
+            return
+
+        filename = f"rekap_{now.year}_{now.month}.csv"
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Lokasi",
+                "SKU",
+                "Produk",
+                "UPC",
+                "Expired",
+                "Status",
+                "PIC",
+                "Tanggal Input"
+            ])
+
+            today = now.date()
+            for row in data:
+                lokasi, sku, produk, upc, expired, pic, input_date = row
+                if isinstance(expired, datetime):
+                    expired = expired.date()
+                selisih = (expired - today).days
+                if selisih < 0:
+                    status = "🔴 SUDAH EXPIRED"
+                elif selisih == 0:
+                    status = "🟠 HARI INI"
+                elif selisih == 1:
+                    status = "🟡 H-1"
+                elif 2 <= selisih <= 7:
+                    status = f"🔵 H-{selisih}"
+                else:
+                    status = "🟢 AMAN"
+
+                writer.writerow([
+                    lokasi or "-",
+                    sku or "-",
+                    produk or "-",
+                    upc or "-",
+                    expired,
+                    status,
+                    pic or "-",
+                    input_date.strftime('%Y-%m-%d %H:%M:%S') if input_date else "-"
+                ])
+
+        with open(filename, "rb") as f:
+            await update.effective_message.reply_document(document=f)
+        os.remove(filename)
+
+    except Exception as e:
+        await update.effective_message.reply_text(f"❌ Gagal rekap bulanan: {e}")
+
+# ================= FUNGSI GET_MONTHLY_REPORT (diperbaiki dengan timezone) =================
+def get_monthly_report(year, month):
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT 
+                l.nama_lokasi,
+                p.sku,
+                e.nama_produk,
+                e.upc,
+                e.expired_date,
+                e.pic,
+                e.tanggal_input
+            FROM expired_logs e
+            LEFT JOIN locations l ON l.id::text = e.lokasi::text
+            LEFT JOIN products p ON p.upc::text = e.upc::text
+            WHERE EXTRACT(YEAR FROM e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
+              AND EXTRACT(MONTH FROM e.tanggal_input AT TIME ZONE 'Asia/Jakarta') = %s
+            ORDER BY e.tanggal_input
+        """, (year, month))
+        return cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+# ================= HAPUS =================
+
+async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = get_recent_logs()
+    if not data:
+        await update.message.reply_text("Tidak ada data untuk dihapus.")
+        return
+
+    keyboard = []
+
+    for row in data:
+        id_, lokasi, sku, upc, expired = row
+
+        selisih = (expired - date.today()).days
+
+        if selisih < 0:
+            status = "🔴 EXPIRED"
+        elif selisih == 0:
+            status = "🟠 HARI INI"
+        elif selisih == 1:
+            status = "🟡 H-1"
+        elif 2 <= selisih <= 7:
+            status = f"🔵 H-{selisih}"
+        else:
+            status = "🟢 AMAN"
+
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{lokasi} - {sku} - {upc} - {expired} - {status}",
+                callback_data=f"hapus_{id_}"
+            )
+        ])
+
+    await update.message.reply_text(
+        "🗑 Pilih item yang ingin dihapus:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    item_id = query.data.split("_")[1]
 
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT l.nama_lokasi,p.sku,e.nama_produk,
-               e.upc,e.expired_date,e.pic,e.tanggal_input
+        SELECT l.nama_lokasi, p.sku, e.upc, e.nama_produk, e.expired_date, e.pic
         FROM expired_logs e
-        LEFT JOIN locations l ON l.id::text=e.lokasi::text
-        LEFT JOIN products p ON p.upc::text=e.upc::text
-        WHERE (e.tanggal_input AT TIME ZONE 'Asia/Jakarta')::date=%s
-        ORDER BY e.expired_date ASC
-    """,(today,))
-    data = cur.fetchall()
+        LEFT JOIN products p ON p.upc::text = e.upc::text
+        LEFT JOIN locations l ON l.id::text = e.lokasi::text
+        WHERE e.id=%s
+    """, (item_id,))
+    row = cur.fetchone()
     cur.close()
     conn.close()
 
-    if not data:
-        await update.message.reply_text("Tidak ada data hari ini.")
+    if not row:
+        await query.edit_message_text("Data tidak ditemukan.")
         return
 
-    filename = f"expired_{today}.csv"
-    with open(filename,"w",newline="",encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Lokasi","SKU","Produk","UPC",
-                         "Expired","Status","PIC","Input Date"])
+    lokasi, sku, upc, produk, expired, pic = row
 
-        for row in data:
-            lokasi, sku, produk, upc, expired, pic, input_date = row
-            selisih = (expired - today).days
-            if selisih < 0: status="EXPIRED"
-            elif selisih==0: status="HARI INI"
-            elif selisih==1: status="H-1"
-            else: status=f"H-{selisih}"
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"confirmhapus_{item_id}"),
+            InlineKeyboardButton("❌ Batal", callback_data="batalhapus")
+        ]
+    ]
 
-            writer.writerow([lokasi,sku,produk,upc,
-                             expired,status,pic,input_date])
+    await query.edit_message_text(
+        f"""📦 DETAIL PRODUK
 
-    with open(filename,"rb") as f:
-        await update.message.reply_document(f)
-    os.remove(filename)
+Lokasi   : {lokasi}
+SKU      : {sku}
+UPC      : {upc}
+Produk   : {produk}
+Expired  : {expired}
+PIC      : {pic}
 
-async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tz = pytz.timezone("Asia/Jakarta")
-    now = datetime.now(tz)
-    data = get_monthly_report(now.year, now.month)
+Yakin ingin menghapus data ini?""",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+async def confirm_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    if not data:
-        await update.message.reply_text("Tidak ada data bulan ini.")
-        return
+    item_id = query.data.split("_")[1]
 
-    filename = f"rekap_{now.year}_{now.month}.csv"
-    with open(filename,"w",newline="",encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Lokasi","SKU","Produk","UPC",
-                         "Expired","PIC","Input Date"])
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM expired_logs WHERE id=%s", (item_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
 
-        for row in data:
-            writer.writerow(row)
+    await query.edit_message_text("✅ Item berhasil dihapus.")
+async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    with open(filename,"rb") as f:
-        await update.message.reply_document(f)
-    os.remove(filename)
+    await query.edit_message_text("❌ Penghapusan dibatalkan.")
 
 # ================= MAIN =================
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama))
-    app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"), help_menu))
-    app.add_handler(MessageHandler(filters.Regex("^📄 Export Harian$"), export_harian))
-    app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"), export_bulanan))
-
     conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^➕ Input Produk$"), start_input)],
+        entry_points=[
+            MessageHandler(filters.Regex("^➕ Input Produk$"), start_input)
+        ],
         states={
-            PILIH_LOKASI:[CallbackQueryHandler(pilih_lokasi,pattern="^lokasi_")],
-            PILIH_PIC:[CallbackQueryHandler(pilih_pic,pattern="^pic_")],
-            CARI_PRODUK:[MessageHandler(filters.TEXT & ~filters.COMMAND,cari_produk)],
-            PILIH_PRODUK:[CallbackQueryHandler(pilih_produk,pattern="^produk_")],
-            INPUT_EXPIRED:[MessageHandler(filters.TEXT & ~filters.COMMAND,input_expired)],
-            TAMBAH_LAGI:[
+            PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
+            PILIH_PIC: [CallbackQueryHandler(pilih_pic, pattern="^pic_")],
+            CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
+            PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
+            INPUT_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)],
+            TAMBAH_LAGI: [
                 MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
                 MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
             ]
         },
-        fallbacks=[MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama)],
+        fallbacks=[
+            MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
+            MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama)
+        ],
         allow_reentry=True
     )
 
+    # ===== CALLBACK HANDLER DITARUH DI ATAS =====
+    app.add_handler(CallbackQueryHandler(hapus_konfirmasi, pattern="^hapus_"))
+    app.add_handler(CallbackQueryHandler(confirm_hapus, pattern="^confirmhapus_"))
+    app.add_handler(CallbackQueryHandler(batal_hapus, pattern="^batalhapus$"))
+
+    # ===== COMMAND & MENU =====
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
+
+    app.add_handler(MessageHandler(filters.Regex("^📄 Export Harian$"), export_harian))
+    app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"), export_bulanan))
+    app.add_handler(MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start))
+    app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"), help_menu))
+    app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama))
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
