@@ -467,9 +467,11 @@ def get_monthly_report(year, month):
     finally:
         cur.close()
         conn.close()
-# ================= HAPUS =================
-async def hapus_item_start(update, context):
 
+
+# ================= HAPUS =================
+
+async def hapus_item_start(update, context):
     if not is_admin(update):
         await update.message.reply_text("❌ Hanya admin yang bisa hapus.")
         return
@@ -495,28 +497,18 @@ async def hapus_item_start(update, context):
     keyboard = []
 
     for row in rows:
-        item_id = row[0]
-        sku = row[1]
-        expired = row[2]
-
         keyboard.append([
             InlineKeyboardButton(
-                f"{sku} - {expired}",
-                callback_data=f"hapus_{item_id}"
+                f"{row[1]} - {row[2]}",
+                callback_data=f"hapus_{row[0]}"
             )
         ])
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
     await update.message.reply_text(
         "🗑 Pilih produk expired yang ingin dihapus:",
-        reply_markup=reply_markup
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def confirm_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if update.effective_user.id not in ADMIN_IDS:
-        return
 
 async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -529,11 +521,7 @@ async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT sku, expired_date
-        FROM expired_logs
-        WHERE id=%s
-    """, (item_id,))
+    cur.execute("SELECT sku, expired_date FROM expired_logs WHERE id=%s", (item_id,))
     row = cur.fetchone()
     cur.close()
     conn.close()
@@ -542,24 +530,21 @@ async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Data tidak ditemukan.")
         return
 
-    sku, expired = row
-
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"confirmhapus_{item_id}"),
-            InlineKeyboardButton("❌ Batal", callback_data="batalhapus")
-        ]
-    ]
+    keyboard = [[
+        InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"confirmhapus_{item_id}"),
+        InlineKeyboardButton("❌ Batal", callback_data="batalhapus")
+    ]]
 
     await query.edit_message_text(
         f"""📦 DETAIL PRODUK
 
-SKU      : {sku}
-Expired  : {expired}
+SKU      : {row[0]}
+Expired  : {row[1]}
 
 Yakin ingin menghapus data ini?""",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
 
 async def confirm_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -572,20 +557,19 @@ async def confirm_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = get_connection()
     cur = conn.cursor()
-
     cur.execute("DELETE FROM expired_logs WHERE id=%s", (item_id,))
     conn.commit()
-
     cur.close()
     conn.close()
 
     await query.edit_message_text("✅ Item berhasil dihapus.")
 
+
 async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     await query.edit_message_text("❌ Penghapusan dibatalkan.")
+
 async def notifikasi_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = get_connection()
