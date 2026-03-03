@@ -633,20 +633,39 @@ def is_admin(update):
 # ================= MAIN =================
 
 if __name__ == "__main__":
+
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # ===== COMMAND =====
-    app.add_handler(CommandHandler("start", start))
+    # ===== BUAT CONVERSATION DULU =====
+    conv = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex("^➕ Input Produk$"), start_input)
+        ],
+        states={
+            PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
+            CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
+            PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
+            INPUT_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)],
+            TAMBAH_LAGI: [
+                MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
+                MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
+            ]
+        },
+        fallbacks=[
+            MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
+            MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama)
+        ],
+        allow_reentry=True
+    )
 
-    # ===== CONVERSATION =====
+    # ===== BARU TAMBAHKAN HANDLER =====
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
 
-    # ===== CALLBACK KHUSUS HAPUS =====
     app.add_handler(CallbackQueryHandler(hapus_konfirmasi, pattern="^hapus_"))
     app.add_handler(CallbackQueryHandler(confirm_hapus, pattern="^confirmhapus_"))
     app.add_handler(CallbackQueryHandler(batal_hapus, pattern="^batalhapus$"))
 
-    # ===== MENU BUTTON =====
     app.add_handler(MessageHandler(filters.Regex("^📄 Export Harian$"), export_harian))
     app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"), export_bulanan))
     app.add_handler(MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start))
