@@ -637,25 +637,35 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
     # ===== BUAT CONVERSATION DULU =====
-    conv = ConversationHandler(
-        entry_points=[
-            MessageHandler(filters.Regex("^➕ Input Produk$"), start_input)
+   conv = ConversationHandler(
+    entry_points=[
+        MessageHandler(filters.Regex("^➕ Input Produk$"), start_input)
+    ],
+    states={
+        PILIH_LOKASI: [
+            CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")
         ],
-        states={
-            PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
-            CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
-            PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
-            INPUT_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)],
-            TAMBAH_LAGI: [
-                MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
-                MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
-            ]
-        },
-        fallbacks=[
-    MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
-    MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama),
-    MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start),
-]
+        CARI_PRODUK: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)
+        ],
+        PILIH_PRODUK: [
+            CallbackQueryHandler(pilih_produk, pattern="^produk_")
+        ],
+        INPUT_EXPIRED: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)
+        ],
+        TAMBAH_LAGI: [
+            MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
+            MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
+        ],
+    },
+    fallbacks=[
+        MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
+        MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama),
+        MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start),
+    ],
+    allow_reentry=True,
+)
 
     # ===== BARU TAMBAHKAN HANDLER =====
 
