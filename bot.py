@@ -195,6 +195,49 @@ async def cancel_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ================= INPUT FLOW =================
+async def show_locations_page(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = True):
+    locations = context.user_data.get('locations', [])
+    if not locations:
+        locations = get_locations()
+        context.user_data['locations'] = locations
+
+    page = context.user_data.get('page', 0)
+    per_page = 5
+    start = page * per_page
+    end = start + per_page
+    current_locations = locations[start:end]
+
+    keyboard = []
+    for loc in current_locations:
+        keyboard.append([InlineKeyboardButton(loc[1], callback_data=f"lokasi_{loc[0]}")])
+
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data="loc_prev"))
+    if end < len(locations):
+        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data="loc_next"))
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    keyboard.append([InlineKeyboardButton("🔍 Cari Lokasi", callback_data="loc_search")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    total_halaman = (len(locations) - 1) // per_page + 1
+    text = f"Pilih Lokasi (Halaman {page+1}/{total_halaman}):"
+
+    if edit and update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+    else:
+        await update.effective_message.reply_text(text, reply_markup=reply_markup)
+async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if 'lokasi' not in context.user_data or 'pic' not in context.user_data:
+        await update.message.reply_text("⚠️ Terjadi kesalahan, silakan mulai dari awal.")
+        return ConversationHandler.END
+    await update.message.reply_text(
+        f"Lokasi tetap ✔️\nPIC: {context.user_data['pic']}\n\n"
+        "Ketik SKU / Nama / UPC:"
+    )
+    return CARI_PRODUK
 
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     locations = get_locations()
@@ -261,6 +304,7 @@ async def cari_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔙 Kembali ke Daftar", callback_data="loc_back_to_list")])
     await update.message.reply_text("Hasil pencarian:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PILIH_LOKASI
+
 async def lokasi_back_to_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -277,7 +321,7 @@ async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(u[1], callback_data=f"pic_{u[0]}")] for u in users]
     await query.edit_message_text("Pilih PIC:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PILIH_PIC
-CARI_LOKASI = 6
+
 
 async def pilih_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -345,14 +389,18 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return TAMBAH_LAGI
 
 async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if 'lokasi' not in context.user_data or 'pic' not in context.user_data:
+        await update.message.reply_text("⚠️ Terjadi kesalahan, silakan mulai dari awal.")
+        return ConversationHandler.END
     await update.message.reply_text(
         f"Lokasi tetap ✔️\nPIC: {context.user_data['pic']}\n\n"
         "Ketik SKU / Nama / UPC:"
     )
     return CARI_PRODUK
+import pytz
 
 # ================= TAMBAHKAN IMPORT INI DI BAGIAN ATAS =================
-import pytz
+
 
 # ================= EXPORT HARIAN (sudah benar, hanya ditambahkan try-except) =================
 async def export_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -618,49 +666,8 @@ async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     await query.edit_message_text("❌ Penghapusan dibatalkan.")
-async def show_locations_page(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = True):
-    locations = context.user_data.get('locations', [])
-    if not locations:
-        locations = get_locations()
-        context.user_data['locations'] = locations
 
-    page = context.user_data.get('page', 0)
-    per_page = 5
-    start = page * per_page
-    end = start + per_page
-    current_locations = locations[start:end]
 
-    keyboard = []
-    for loc in current_locations:
-        keyboard.append([InlineKeyboardButton(loc[1], callback_data=f"lokasi_{loc[0]}")])
-
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data="loc_prev"))
-    if end < len(locations):
-        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data="loc_next"))
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-
-    keyboard.append([InlineKeyboardButton("🔍 Cari Lokasi", callback_data="loc_search")])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    total_halaman = (len(locations) - 1) // per_page + 1
-    text = f"Pilih Lokasi (Halaman {page+1}/{total_halaman}):"
-
-    if edit and update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
-    else:
-        await update.effective_message.reply_text(text, reply_markup=reply_markup)
-async def tambah_produk_lagi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if 'lokasi' not in context.user_data or 'pic' not in context.user_data:
-        await update.message.reply_text("⚠️ Terjadi kesalahan, silakan mulai dari awal.")
-        return ConversationHandler.END
-    await update.message.reply_text(
-        f"Lokasi tetap ✔️\nPIC: {context.user_data['pic']}\n\n"
-        "Ketik SKU / Nama / UPC:"
-    )
-    return CARI_PRODUK
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
