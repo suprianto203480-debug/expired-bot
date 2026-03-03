@@ -659,19 +659,21 @@ if __name__ == "__main__":
     )
 
     # ===== BARU TAMBAHKAN HANDLER =====
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
-
-    app.add_handler(CallbackQueryHandler(hapus_konfirmasi, pattern="^hapus_"))
-    app.add_handler(CallbackQueryHandler(confirm_hapus, pattern="^confirmhapus_"))
-    app.add_handler(CallbackQueryHandler(batal_hapus, pattern="^batalhapus$"))
-
+# ===== MENU BUTTON =====
+    app.add_handler(MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start))
     app.add_handler(MessageHandler(filters.Regex("^📄 Export Harian$"), export_harian))
     app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Bulanan CSV$"), export_bulanan))
-    app.add_handler(MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start))
     app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"), help_menu))
     app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama))
     app.add_handler(MessageHandler(filters.Regex("^🚨 Notifikasi Expired$"), notifikasi_expired))
+
+    # ===== CALLBACK HAPUS =====
+    app.add_handler(CallbackQueryHandler(hapus_konfirmasi, pattern="^hapus_"))
+    app.add_handler(CallbackQueryHandler(confirm_hapus, pattern="^confirmhapus_"))
+    app.add_handler(CallbackQueryHandler(batal_hapus, pattern="^batalhapus$"))
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
