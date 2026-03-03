@@ -612,13 +612,14 @@ async def notifikasi_expired(update: Update, context: ContextTypes.DEFAULT_TYPE)
             continue
 
         pesan += (
-            f"📍 {lokasi or '-'}\n"
-            f"SKU: {sku or '-'}\n"
-            f"Produk: {produk or '-'}\n"
-            f"Expired: {expired} ({status})\n"
-            f"PIC: {pic or '-'}\n"
-            f"----------------------\n"
-        )
+    f"📍 {lokasi or '-'}\n"
+    f"SKU: {sku or '-'}\n"
+    f"UPC: {upc or '-'}\n"
+    f"Produk: {produk or '-'}\n"
+    f"Expired: {expired} ({status})\n"
+    f"PIC: {pic or '-'}\n"
+    f"----------------------\n"
+)
 
     await update.message.reply_text(pesan)
 
