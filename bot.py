@@ -652,11 +652,10 @@ if __name__ == "__main__":
             ]
         },
         fallbacks=[
-            MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
-            MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama)
-        ],
-        allow_reentry=True
-    )
+    MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
+    MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama),
+    MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start),
+]
 
     # ===== BARU TAMBAHKAN HANDLER =====
 
