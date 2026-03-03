@@ -477,7 +477,7 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     e.expired_date
                 FROM expired_logs e
                 LEFT JOIN products p ON p.upc::text = e.upc::text
-                WHERE e.expired_date <= CURRENT_DATE
+                WHERE e.expired_date < CURRENT_DATE   -- Hanya yang sudah lewat
                 ORDER BY e.expired_date ASC
             """)
             rows = cur.fetchall()
