@@ -458,12 +458,9 @@ async def export_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error di export_bulanan: {e}")
         await update.effective_message.reply_text(f"❌ Gagal rekap bulanan: {e}")
 
-# ================= HAPUS ITEM =================
-
 async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Fungsi hapus_item_start dipanggil dengan pesan: '{update.message.text}' oleh user {update.effective_user.id}")
 
-    # Cek admin
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ Hanya admin yang bisa menghapus item.")
         return
@@ -472,12 +469,13 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = get_connection()
         cur = conn.cursor()
         try:
-            # Ambil produk yang sudah expired (bisa juga semua, sesuai kebutuhan)
+            # PERBAIKAN: JOIN dengan products untuk mengambil sku
             cur.execute("""
-                SELECT id, sku, expired_date
-                FROM expired_logs
-                WHERE expired_date <= CURRENT_DATE
-                ORDER BY expired_date ASC
+                SELECT e.id, p.sku, e.expired_date
+                FROM expired_logs e
+                LEFT JOIN products p ON p.upc::text = e.upc::text
+                WHERE e.expired_date <= CURRENT_DATE
+                ORDER BY e.expired_date ASC
             """)
             rows = cur.fetchall()
         finally:
@@ -490,9 +488,11 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = []
         for row in rows:
+            # row = (id, sku, expired_date)
+            sku = row[1] if row[1] else "SKU tidak ditemukan"
             keyboard.append([
                 InlineKeyboardButton(
-                    f"{row[1]} - {row[2]}",
+                    f"{sku} - {row[2]}",
                     callback_data=f"hapus_{row[0]}"
                 )
             ])
@@ -504,6 +504,57 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error di hapus_item_start: {e}")
         await update.message.reply_text("❌ Terjadi kesalahan. Silakan coba lagi nanti.")
+
+async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if update.effective_user.id not in ADMIN_IDS:
+        await query.edit_message_text("❌ Anda tidak berhak melakukan ini.")
+        return
+
+    item_id = query.data.split("_")[1]
+
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            # PERBAIKAN: JOIN untuk mengambil sku
+            cur.execute("""
+                SELECT p.sku, e.expired_date
+                FROM expired_logs e
+                LEFT JOIN products p ON p.upc::text = e.upc::text
+                WHERE e.id = %s
+            """, (item_id,))
+            row = cur.fetchone()
+        finally:
+            cur.close()
+            conn.close()
+
+        if not row:
+            await query.edit_message_text("Data tidak ditemukan.")
+            return
+
+        sku = row[0] if row[0] else "SKU tidak diketahui"
+        expired = row[1]
+
+        keyboard = [[
+            InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"confirmhapus_{item_id}"),
+            InlineKeyboardButton("❌ Batal", callback_data="batalhapus")
+        ]]
+
+        await query.edit_message_text(
+            f"""📦 DETAIL PRODUK
+
+SKU      : {sku}
+Expired  : {expired}
+
+Yakin ingin menghapus data ini?""",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        logger.error(f"Error di hapus_konfirmasi: {e}")
+        await query.edit_message_text("❌ Terjadi kesalahan.")
 
 async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -685,3 +736,4 @@ if __name__ == "__main__":
 
     logger.info("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
+
