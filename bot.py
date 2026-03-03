@@ -565,6 +565,61 @@ async def batal_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     await query.edit_message_text("❌ Penghapusan dibatalkan.")
+async def notifikasi_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT 
+                l.nama_lokasi,
+                p.sku,
+                e.nama_produk,
+                e.upc,
+                e.expired_date,
+                e.pic
+            FROM expired_logs e
+            LEFT JOIN locations l ON l.id::text = e.lokasi::text
+            LEFT JOIN products p ON p.upc::text = e.upc::text
+            WHERE e.expired_date <= CURRENT_DATE + INTERVAL '1 day'
+            ORDER BY e.expired_date ASC
+        """)
+        data = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not data:
+        await update.message.reply_text("✅ Tidak ada produk expired / H-1.")
+        return
+
+    today = date.today()
+    pesan = "🚨 *NOTIFIKASI PRODUK EXPIRED*\n\n"
+
+    for row in data:
+        lokasi, sku, produk, upc, expired, pic = row
+        selisih = (expired - today).days
+
+        if selisih < 0:
+            status = "🔴 SUDAH EXPIRED"
+        elif selisih == 0:
+            status = "🟠 EXPIRED HARI INI"
+        elif selisih == 1:
+            status = "🟡 H-1"
+        else:
+            continue
+
+        pesan += (
+            f"📍 {lokasi or '-'}\n"
+            f"SKU: {sku or '-'}\n"
+            f"Produk: {produk or '-'}\n"
+            f"Expired: {expired} ({status})\n"
+            f"PIC: {pic or '-'}\n"
+            f"----------------------\n"
+        )
+
+    await update.message.reply_text(pesan)
 
 # ================= MAIN =================
 
@@ -606,6 +661,13 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.Regex("^🗑 Hapus Item$"), hapus_item_start))
     app.add_handler(MessageHandler(filters.Regex("^ℹ️ Help$"), help_menu))
     app.add_handler(MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama))
+
+    app.add_handler(
+        MessageHandler(
+            filters.Regex("^🚨 Notifikasi Expired$"),
+            notifikasi_expired
+        )
+    )
 
     print("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
