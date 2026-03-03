@@ -297,7 +297,7 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
     upc = produk["upc"]
     pic = context.user_data["pic"]
 
-    # Cek duplikasi di database
+    # Cek duplikasi
     conn = get_connection()
     cur = conn.cursor()
     try:
@@ -313,14 +313,12 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if existing:
         tgl_input, pic_lama = existing
-        # Format tanggal_input agar lebih rapi (misal: 2026-03-03 14:30)
         tgl_str = tgl_input.strftime("%Y-%m-%d %H:%M") if tgl_input else "tidak diketahui"
         await update.message.reply_text(
             f"⚠️ Produk dengan UPC {upc} dan tanggal expired {expired_obj} "
             f"sudah pernah diinput di lokasi ini pada {tgl_str} oleh {pic_lama}.\n"
             "Tidak diperbolehkan input duplikat."
         )
-        # Kembali ke menu tambah produk lagi
         keyboard = [
             [KeyboardButton("➕ Tambah Produk Lagi")],
             [KeyboardButton("❌ Selesai")]
@@ -331,14 +329,7 @@ async def input_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return TAMBAH_LAGI
 
-    # Jika tidak ada duplikasi, simpan data
-    save_expired(
-        lokasi_id,
-        upc,
-        produk["nama_produk"],
-        expired_obj,
-        pic
-    )
+    save_expired(lokasi_id, upc, produk["nama_produk"], expired_obj, pic)
 
     keyboard = [
         [KeyboardButton("➕ Tambah Produk Lagi")],
@@ -506,7 +497,6 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = get_connection()
         cur = conn.cursor()
         try:
-            # JOIN dengan products, gunakan COALESCE agar jika SKU null, tampilkan nama_produk
             cur.execute("""
                 SELECT 
                     e.id, 
@@ -514,7 +504,7 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     e.expired_date
                 FROM expired_logs e
                 LEFT JOIN products p ON p.upc::text = e.upc::text
-                WHERE e.expired_date < CURRENT_DATE   -- Hanya yang sudah lewat
+                WHERE e.expired_date < CURRENT_DATE
                 ORDER BY e.expired_date ASC
             """)
             rows = cur.fetchall()
@@ -528,7 +518,6 @@ async def hapus_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = []
         for row in rows:
-            # row = (id, identifier, expired_date)
             keyboard.append([
                 InlineKeyboardButton(
                     f"{row[1]} - {row[2]}",
@@ -553,7 +542,6 @@ async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        # Ambil dan validasi item_id
         data_parts = query.data.split('_')
         if len(data_parts) < 2 or not data_parts[1].isdigit():
             await query.edit_message_text("❌ ID produk tidak valid.")
@@ -563,7 +551,6 @@ async def hapus_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = get_connection()
         cur = conn.cursor()
         try:
-            # Ambil detail produk (SKU atau nama_produk, dan expired_date)
             cur.execute("""
                 SELECT 
                     COALESCE(p.sku, e.nama_produk, 'SKU/Nama tidak diketahui') AS identifier,
@@ -638,9 +625,9 @@ async def invalid_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❌ Input tidak valid. Masukkan tanggal dalam format **ddmmyy** (contoh: 030326 untuk 3 Maret 2026) atau gunakan menu di bawah.",
         reply_markup=ReplyKeyboardMarkup([["❌ Selesai", "🏠 Menu Utama"]], resize_keyboard=True)
+    )
 
 async def hapus_item_dari_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Akhiri percakapan
     await hapus_item_start(update, context)
     return ConversationHandler.END
 
@@ -709,30 +696,30 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
     # Conversation Handler untuk Input Produk
-   conv_handler = ConversationHandler(
-    entry_points=[
-        MessageHandler(filters.Text("➕ Input Produk"), start_input)
-    ],
-    states={
-        PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
-        CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
-        PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
-        INPUT_EXPIRED: [
-            MessageHandler(filters.Regex(r'^\d{6}$'), input_expired)  # Hanya terima 6 digit angka
+    conv_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Text("➕ Input Produk"), start_input)
         ],
-        TAMBAH_LAGI: [
-            MessageHandler(filters.Text("➕ Tambah Produk Lagi"), tambah_produk_lagi),
-            MessageHandler(filters.Text("❌ Selesai"), cancel_process)
-        ],
-    },
+        states={
+            PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
+            CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
+            PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
+            INPUT_EXPIRED: [
+                MessageHandler(filters.Regex(r'^\d{6}$'), input_expired)  # Hanya terima 6 digit angka
+            ],
+            TAMBAH_LAGI: [
+                MessageHandler(filters.Text("➕ Tambah Produk Lagi"), tambah_produk_lagi),
+                MessageHandler(filters.Text("❌ Selesai"), cancel_process)
+            ],
+        },
         fallbacks=[
-        MessageHandler(filters.Text("❌ Selesai"), cancel_process),
-        MessageHandler(filters.Text("🏠 Menu Utama"), menu_utama),
-        MessageHandler(filters.Text("🗑 Hapus Item"), hapus_item_start),
-        MessageHandler(filters.TEXT & ~filters.COMMAND, invalid_input)  # Tangani input lain yang tidak valid
-    ],
-    allow_reentry=True,
-)
+            MessageHandler(filters.Text("❌ Selesai"), cancel_process),
+            MessageHandler(filters.Text("🏠 Menu Utama"), menu_utama),
+            MessageHandler(filters.Text(["🗑 Hapus Item", "Hapus Item"]), hapus_item_dari_conversation),  # Mengakhiri percakapan
+            MessageHandler(filters.TEXT & ~filters.COMMAND, invalid_input)  # Tangani input lain yang tidak valid
+        ],
+        allow_reentry=True,
+    )
 
     # Handler perintah start
     app.add_handler(CommandHandler("start", start))
@@ -741,7 +728,7 @@ if __name__ == "__main__":
     app.add_handler(conv_handler)
 
     # Handler untuk tombol utama (di luar percakapan)
-    app.add_handler(MessageHandler(filters.Text("🗑 Hapus Item"), hapus_item_start))
+    app.add_handler(MessageHandler(filters.Text(["🗑 Hapus Item", "Hapus Item"]), hapus_item_start))
     app.add_handler(MessageHandler(filters.Text("📄 Export Harian"), export_harian))
     app.add_handler(MessageHandler(filters.Text("📊 Rekap Bulanan CSV"), export_bulanan))
     app.add_handler(MessageHandler(filters.Text("ℹ️ Help"), help_menu))
@@ -755,4 +742,3 @@ if __name__ == "__main__":
 
     logger.info("✅ BOT FINAL STABLE RUNNING")
     app.run_polling()
-
