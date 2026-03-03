@@ -22,12 +22,29 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-PILIH_LOKASI, PILIH_PIC, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED, TAMBAH_LAGI = range(6)
+PILIH_LOKASI, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED, TAMBAH_LAGI = range(5)
 
 # ================= DATABASE =================
 
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
+
+def get_user_by_telegram_id(telegram_id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT username, nama, role, is_active
+        FROM users
+        WHERE telegram_id = %s
+    """, (telegram_id,))
+
+    user = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    return user
 
 def user_exists(telegram_id):
     conn = get_connection()
@@ -42,15 +59,6 @@ def get_locations():
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("SELECT id,nama_lokasi FROM locations WHERE is_active=true ORDER BY id")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
-
-def get_active_users():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id,nama FROM users WHERE is_active=true ORDER BY nama")
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -201,31 +209,37 @@ async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(l[1], callback_data=f"lokasi_{l[0]}")] for l in locations]
     await update.message.reply_text("Pilih Lokasi:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PILIH_LOKASI
-
 async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["lokasi"] = query.data.split("_")[1]
 
-    users = get_active_users()
-    keyboard = [[InlineKeyboardButton(u[1], callback_data=f"pic_{u[0]}")] for u in users]
-    await query.edit_message_text("Pilih PIC:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return PILIH_PIC
+    lokasi_id = query.data.split("_")[1]
+    context.user_data["lokasi"] = lokasi_id
 
-async def pilih_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    pic_id = query.data.split("_")[1]
+    # Ambil user berdasarkan telegram_id
+    telegram_id = update.effective_user.id
+    user = get_user_by_telegram_id(telegram_id)
 
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT nama FROM users WHERE id=%s",(pic_id,))
-    result = cur.fetchone()
-    cur.close()
-    conn.close()
+    if not user:
+        await query.edit_message_text("❌ Anda tidak terdaftar.")
+        return ConversationHandler.END
 
-    context.user_data["pic"] = result[0]
-    await query.edit_message_text(f"PIC: {result[0]}\n\nKetik SKU / Nama / UPC:")
+    username, nama, role, is_active = user
+
+    if not is_active:
+        await query.edit_message_text("❌ Akun Anda tidak aktif.")
+        return ConversationHandler.END
+
+    # Simpan PIC otomatis
+    context.user_data["pic"] = nama
+    context.user_data["role"] = role
+
+    await query.edit_message_text(
+        f"📍 Lokasi dipilih ✔️\n"
+        f"👤 PIC: {nama}\n\n"
+        "Ketik SKU / Nama / UPC:"
+    )
+
     return CARI_PRODUK
 
 async def cari_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -562,16 +576,15 @@ if __name__ == "__main__":
             MessageHandler(filters.Regex("^➕ Input Produk$"), start_input)
         ],
         states={
-            PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
-            PILIH_PIC: [CallbackQueryHandler(pilih_pic, pattern="^pic_")],
-            CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
-            PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
-            INPUT_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)],
-            TAMBAH_LAGI: [
-                MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
-                MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
-            ]
-        },
+    PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi, pattern="^lokasi_")],
+    CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
+    PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
+    INPUT_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_expired)],
+    TAMBAH_LAGI: [
+        MessageHandler(filters.Regex("^➕ Tambah Produk Lagi$"), tambah_produk_lagi),
+        MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process)
+    ]
+}
         fallbacks=[
             MessageHandler(filters.Regex("^❌ Selesai$"), cancel_process),
             MessageHandler(filters.Regex("^🏠 Menu Utama$"), menu_utama)
