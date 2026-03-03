@@ -158,6 +158,7 @@ def main_menu():
     keyboard = [
         [KeyboardButton("➕ Input Produk"), KeyboardButton("📄 Export Harian")],
         [KeyboardButton("📊 Rekap Bulanan CSV"), KeyboardButton("🗑 Hapus Item")],
+        [KeyboardButton("🚨 Notifikasi Expired")],
         [KeyboardButton("ℹ️ Help")],
         [KeyboardButton("🏠 Menu Utama")]
     ]
