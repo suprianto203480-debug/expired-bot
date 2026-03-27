@@ -216,7 +216,8 @@ if __name__ == "__main__":
 
     telegram_app = ApplicationBuilder().token(TOKEN).build()
 
-        conv = ConversationHandler(
+    # ✅ Conversation (posisi benar & indent benar)
+    conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Text("➕ Input Produk"), start_input)],
         states={
             PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi)],
@@ -228,12 +229,15 @@ if __name__ == "__main__":
         per_message=True,  # 🔥 FIX WARNING
     )
 
-    telegram_app.add_handler(CommandHandler("start", start))
+    # ✅ Register handler (cukup sekali)
     telegram_app.add_handler(conv)
+
+    telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(MessageHandler(filters.Text("📄 Export Harian"), export_harian))
     telegram_app.add_handler(MessageHandler(filters.Text("📊 Rekap Bulanan CSV"), export_bulanan))
     telegram_app.add_handler(MessageHandler(filters.Text("🚨 Notifikasi Expired"), notifikasi_expired))
 
+    # ✅ Webhook
     asyncio.run(telegram_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook"))
 
     print("✅ BOT LIVE")
