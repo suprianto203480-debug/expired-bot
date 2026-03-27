@@ -202,11 +202,16 @@ def home():
 
 @flask_app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, telegram_app.bot)
-    asyncio.run(telegram_app.process_update(update))
-    return "ok"
+    try:
+        data = request.get_json(force=True)
+        update = Update.de_json(data, telegram_app.bot)
 
+        telegram_app.update_queue.put_nowait(update)
+
+        return "ok"
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return "error"
 # ================= MAIN =================
 
 if __name__ == "__main__":
@@ -214,7 +219,11 @@ if __name__ == "__main__":
     WEBHOOK_URL = os.getenv("WEBHOOK_URL")
     PORT = int(os.getenv("PORT", 8080))
 
-    telegram_app = ApplicationBuilder().token(TOKEN).build()
+   telegram_app = ApplicationBuilder().token(TOKEN).build()
+
+# 🔥 TAMBAHAN WAJIB
+asyncio.run(telegram_app.initialize())
+asyncio.run(telegram_app.start())
 
     # ✅ Conversation (posisi benar & indent benar)
     conv = ConversationHandler(
