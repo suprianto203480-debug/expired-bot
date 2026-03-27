@@ -221,11 +221,9 @@ if __name__ == "__main__":
 
     telegram_app = ApplicationBuilder().token(TOKEN).build()
 
-    # 🔥 WAJIB di dalam block
     asyncio.run(telegram_app.initialize())
     asyncio.run(telegram_app.start())
 
-    # ✅ Conversation
     conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Text("➕ Input Produk"), start_input)],
         states={
@@ -238,15 +236,12 @@ if __name__ == "__main__":
         per_message=True,
     )
 
-    # ✅ Register handler
     telegram_app.add_handler(conv)
-
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(MessageHandler(filters.Text("📄 Export Harian"), export_harian))
     telegram_app.add_handler(MessageHandler(filters.Text("📊 Rekap Bulanan CSV"), export_bulanan))
     telegram_app.add_handler(MessageHandler(filters.Text("🚨 Notifikasi Expired"), notifikasi_expired))
 
-    # ✅ Webhook
     asyncio.run(telegram_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook"))
 
     print("✅ BOT LIVE")
