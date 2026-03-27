@@ -219,13 +219,13 @@ if __name__ == "__main__":
     WEBHOOK_URL = os.getenv("WEBHOOK_URL")
     PORT = int(os.getenv("PORT", 8080))
 
-   telegram_app = ApplicationBuilder().token(TOKEN).build()
+    telegram_app = ApplicationBuilder().token(TOKEN).build()
 
-# 🔥 TAMBAHAN WAJIB
-asyncio.run(telegram_app.initialize())
-asyncio.run(telegram_app.start())
+    # 🔥 WAJIB di dalam block
+    asyncio.run(telegram_app.initialize())
+    asyncio.run(telegram_app.start())
 
-    # ✅ Conversation (posisi benar & indent benar)
+    # ✅ Conversation
     conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Text("➕ Input Produk"), start_input)],
         states={
@@ -235,10 +235,10 @@ asyncio.run(telegram_app.start())
             INPUT_EXPIRED: [MessageHandler(filters.TEXT, input_expired)],
         },
         fallbacks=[],
-        per_message=True,  # 🔥 FIX WARNING
+        per_message=True,
     )
 
-    # ✅ Register handler (cukup sekali)
+    # ✅ Register handler
     telegram_app.add_handler(conv)
 
     telegram_app.add_handler(CommandHandler("start", start))
