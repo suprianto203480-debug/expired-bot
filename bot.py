@@ -691,11 +691,30 @@ async def notifikasi_expired(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"Error di notifikasi_expired: {e}")
         await update.message.reply_text("❌ Gagal mengambil notifikasi.")
 
-# ================= MAIN =================
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
+# ================= WEBHOOK (RAILWAY) =================
 
-    # Conversation Handler untuk Input Produk
+flask_app = Flask(__name__)
+
+@flask_app.route("/", methods=["GET"])
+def home():
+    return "Bot Expired Aktif!"
+
+@flask_app.route("/webhook", methods=["POST"])
+async def webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, telegram_app.bot)
+    await telegram_app.process_update(update)
+    return "ok"
+
+
+if __name__ == "__main__":
+
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+    PORT = int(os.getenv("PORT", 8080))
+
+    telegram_app = ApplicationBuilder().token(TOKEN).build()
+
+    # ====== SEMUA HANDLER (TETAP) ======
     conv_handler = ConversationHandler(
         entry_points=[
             MessageHandler(filters.Text("➕ Input Produk"), start_input)
@@ -705,7 +724,7 @@ if __name__ == "__main__":
             CARI_PRODUK: [MessageHandler(filters.TEXT & ~filters.COMMAND, cari_produk)],
             PILIH_PRODUK: [CallbackQueryHandler(pilih_produk, pattern="^produk_")],
             INPUT_EXPIRED: [
-                MessageHandler(filters.Regex(r'^\d{6}$'), input_expired)  # Hanya terima 6 digit angka
+                MessageHandler(filters.Regex(r'^\d{6}$'), input_expired)
             ],
             TAMBAH_LAGI: [
                 MessageHandler(filters.Text("➕ Tambah Produk Lagi"), tambah_produk_lagi),
@@ -715,30 +734,29 @@ if __name__ == "__main__":
         fallbacks=[
             MessageHandler(filters.Text("❌ Selesai"), cancel_process),
             MessageHandler(filters.Text("🏠 Menu Utama"), menu_utama),
-            MessageHandler(filters.Text(["🗑 Hapus Item", "Hapus Item"]), hapus_item_dari_conversation),  # Mengakhiri percakapan
-            MessageHandler(filters.TEXT & ~filters.COMMAND, invalid_input)  # Tangani input lain yang tidak valid
+            MessageHandler(filters.Text(["🗑 Hapus Item", "Hapus Item"]), hapus_item_dari_conversation),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, invalid_input)
         ],
         allow_reentry=True,
     )
 
-    # Handler perintah start
-    app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(conv_handler)
 
-    # Conversation handler
-    app.add_handler(conv_handler)
+    telegram_app.add_handler(MessageHandler(filters.Text(["🗑 Hapus Item", "Hapus Item"]), hapus_item_start))
+    telegram_app.add_handler(MessageHandler(filters.Text("📄 Export Harian"), export_harian))
+    telegram_app.add_handler(MessageHandler(filters.Text("📊 Rekap Bulanan CSV"), export_bulanan))
+    telegram_app.add_handler(MessageHandler(filters.Text("ℹ️ Help"), help_menu))
+    telegram_app.add_handler(MessageHandler(filters.Text("🏠 Menu Utama"), menu_utama))
+    telegram_app.add_handler(MessageHandler(filters.Text("🚨 Notifikasi Expired"), notifikasi_expired))
 
-    # Handler untuk tombol utama (di luar percakapan)
-    app.add_handler(MessageHandler(filters.Text(["🗑 Hapus Item", "Hapus Item"]), hapus_item_start))
-    app.add_handler(MessageHandler(filters.Text("📄 Export Harian"), export_harian))
-    app.add_handler(MessageHandler(filters.Text("📊 Rekap Bulanan CSV"), export_bulanan))
-    app.add_handler(MessageHandler(filters.Text("ℹ️ Help"), help_menu))
-    app.add_handler(MessageHandler(filters.Text("🏠 Menu Utama"), menu_utama))
-    app.add_handler(MessageHandler(filters.Text("🚨 Notifikasi Expired"), notifikasi_expired))
+    telegram_app.add_handler(CallbackQueryHandler(hapus_konfirmasi, pattern="^hapus_"))
+    telegram_app.add_handler(CallbackQueryHandler(confirm_hapus, pattern="^confirmhapus_"))
+    telegram_app.add_handler(CallbackQueryHandler(batal_hapus, pattern="^batalhapus$"))
 
-    # Handler untuk callback query dari proses hapus
-    app.add_handler(CallbackQueryHandler(hapus_konfirmasi, pattern="^hapus_"))
-    app.add_handler(CallbackQueryHandler(confirm_hapus, pattern="^confirmhapus_"))
-    app.add_handler(CallbackQueryHandler(batal_hapus, pattern="^batalhapus$"))
+    # ===== SET WEBHOOK =====
+    telegram_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
 
-    logger.info("✅ BOT FINAL STABLE RUNNING")
-    app.run_polling()
+    print("✅ BOT EXPIRED WEBHOOK RUNNING")
+
+    flask_app.run(host="0.0.0.0", port=PORT)
