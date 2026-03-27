@@ -216,7 +216,7 @@ if __name__ == "__main__":
 
     telegram_app = ApplicationBuilder().token(TOKEN).build()
 
-    conv = ConversationHandler(
+        conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Text("➕ Input Produk"), start_input)],
         states={
             PILIH_LOKASI: [CallbackQueryHandler(pilih_lokasi)],
@@ -225,6 +225,7 @@ if __name__ == "__main__":
             INPUT_EXPIRED: [MessageHandler(filters.TEXT, input_expired)],
         },
         fallbacks=[],
+        per_message=True,  # 🔥 FIX WARNING
     )
 
     telegram_app.add_handler(CommandHandler("start", start))
