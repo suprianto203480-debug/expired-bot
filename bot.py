@@ -4,6 +4,7 @@ import psycopg2
 import csv
 import pytz
 import asyncio
+import threading
 from datetime import datetime, date
 
 from flask import Flask, request
@@ -42,8 +43,17 @@ PILIH_LOKASI, CARI_PRODUK, PILIH_PRODUK, INPUT_EXPIRED, TAMBAH_LAGI = range(5)
 
 # ================= DATABASE =================
 
-def get_connection():
-    return psycopg2.connect(DATABASE_URL)
+import time
+
+def get_connection(retries=5, delay=2):
+    for i in range(retries):
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            return conn
+        except Exception as e:
+            print(f"Retry DB ke-{i+1} gagal: {e}")
+            time.sleep(delay)
+    raise Exception("Database tidak bisa dihubungi")
 
 def user_exists(telegram_id):
     conn = get_connection()
@@ -246,4 +256,7 @@ if __name__ == "__main__":
 
     print("✅ BOT LIVE")
 
+    def run_flask():
     flask_app.run(host="0.0.0.0", port=PORT)
+
+threading.Thread(target=run_flask).start()
