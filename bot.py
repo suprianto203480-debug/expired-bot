@@ -214,14 +214,16 @@ def home():
 def webhook():
     try:
         data = request.get_json(force=True)
+        logger.info(f"Incoming update: {data}")
+
         update = Update.de_json(data, telegram_app.bot)
 
-        telegram_app.update_queue.put_nowait(update)
+        asyncio.run(telegram_app.process_update(update))
 
         return "ok"
     except Exception as e:
         logger.error(f"Webhook error: {e}")
-        return "error"
+        return "error", 500
 # ================= MAIN =================
 
 if __name__ == "__main__":
