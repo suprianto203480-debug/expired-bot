@@ -256,5 +256,7 @@ if __name__ == "__main__":
 
     print("✅ BOT LIVE")
 
-   def run_flask():
+  def run_flask():
     flask_app.run(host="0.0.0.0", port=PORT)
+
+threading.Thread(target=run_flask).start()
