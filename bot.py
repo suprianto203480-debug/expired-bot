@@ -130,7 +130,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     locations = get_locations()
     keyboard = [[InlineKeyboardButton(l[1], callback_data=f"lokasi_{l[0]}")] for l in locations]
-    await update.message.reply_text("Pilih Lokasi:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    await update.message.reply_text(
+        "Pilih Lokasi:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     return PILIH_LOKASI
 
 async def pilih_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
